@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.workbuddy/
+.DS_Store
+*.egg-info/
+dist/
+build/
