@@ -1,0 +1,21 @@
+# 天禧 AI 技能广场提交清单（config.yaml）
+#
+# ⚠️ 提交前必读：天禧官方未公开完整 config.yaml schema（公开检索仅确认 network.outbound 必须为 false）。
+# 以下字段依据「feature-dev-skill-inventory-2026-09-26.md」行动项 + 已知红线填写，
+# 正式 push 前请向联想开放平台工单核实各字段的必填/可选与取值格式。
+name: skill-inventory
+version: 0.1.0
+author: Elisabeth15501
+description: >-
+  面向办公型 Agent（如 WorkBuddy）的技能库盘点与效能体检。扫描技能目录，统计数量 / 体积 /
+  上下文 token 占用，识别重复与近似技能，并给出保守的瘦身建议。仅输出建议，绝不自动关闭任何技能。
+license: MIT
+categories:
+  - 效率工具
+  - 办公生产力
+# 红线：天禧沙箱禁止出站网络。本技能为纯本地静态分析，无任何网络依赖。
+network:
+  outbound: false
+# 仅读取技能目录与用量日志；不写、不改宿主配置（除非用户显式 --apply 并确认）。
+permissions:
+  filesystem: read-only

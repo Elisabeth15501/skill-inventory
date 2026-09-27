@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""skill-inventory —— 跨平台 Agent 技能库盘点与效能体检。
+"""skill-inventory —— 面向办公型 Agent 的技能库盘点与效能体检。
 
-    python skill_inventory.py                 # 完整表格 + 三档分类
-    python skill_inventory.py --root DIR       # 盘点任意技能目录（跨平台）
-    python skill_inventory.py --unused          # 只看无使用记录的
-    python skill_inventory.py --json            # 机器可读
-    python skill_inventory.py --overrides       # 起草可关闭清单（仅建议，需人工确认）
+    python skill_inventory.py                      # WorkBuddy 默认盘点
+    python skill_inventory.py --agent qwen         # 千问办公（可扫不可关）
+    python skill_inventory.py --agent baidu --root DIR   # 百度搭子（可扫可关，路径待验）
+    python skill_inventory.py --unused             # 只看无使用记录的
+    python skill_inventory.py --json               # 机器可读
+    python skill_inventory.py --overrides          # 起草可关闭清单（草稿，需人工确认）
+    python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
 
 为什么需要它
 ------------
@@ -31,12 +33,17 @@
 ------------------------------
   1. 受保护技能（见 PROTECTED_LEAVES / frontmatter `protected: true` / 安全关键词启发式）
      永不进入「可关闭」候选，单独列出「需人工介入才能关闭」。
-  2. 本工具**只输出建议，绝不自动改写 settings.json 或禁用任何技能**。
+  2. 本工具**默认只输出建议，绝不自动改写 settings.json 或禁用任何技能**。
      `--overrides` 产物也仅是「草稿」，须逐条人工确认后再用。
   3. 遥测缺口降级：当平台无用量日志 / 日志读取失败时，**全库不判为可关闭**，
      只给「需人工确认」档，并显式告警「无法确认冷技能」。
   4. 反向依赖扫描：判「可关闭」前，先扫自动化 / Hook / 专家·连接器 / 子 agent 的定义文件，
      凡被引用的技能**锁定**进受保护桶——堵住「被关键词触发器或专家组件间接调用却无使用日志」的误杀。
+  5. **能力感知关闭（capability-aware close）**：不同 Agent 的「关闭」能力不同——
+     · 千问办公等**无关闭单技能开关**的平台：本工具**绝不产出任何关闭动作**，只给盘点 +
+       手动移除目录指引（避免给出用户根本执行不了的「关闭建议」）。
+     · WorkBuddy / 百度搭子等**可关闭**平台：才输出关闭动作；且 WB 的 `--apply --yes`
+       仅在**你显式同意**下、并先自动备份后才落地。
 
 零依赖：自带最小 frontmatter 解析（支持 key: value 与 key: > 块）。
 """
@@ -47,6 +54,7 @@ import datetime as _dt
 import json
 import pathlib
 import re
+import shutil
 import sys
 import time
 
@@ -62,6 +70,39 @@ USAGE_LOG = HOME / ".workbuddy" / "usage-log.json"
 # 30 天内改动过 = 视为「可能新建/在用」。usage-log 对新建技能必然没有记录，
 # 不设这道闸就会把刚写的技能也判成「该关」。
 RECENT_DAYS = 30
+
+# ───────────────────────────── 平台档位（能力感知） ─────────────────────────────
+# 每个平台的能力不同：核心分叉在 `can_close`（能否程序化关闭单技能）。
+# 不可关平台 → 只报告 + 手动移除指引，绝不产出关闭动作。
+PLATFORMS = {
+    "workbuddy": {
+        "label": "WorkBuddy",
+        "skills_root": HOME / ".workbuddy" / "skills",
+        "usage_log": HOME / ".workbuddy" / "usage-log.json",
+        "can_close": True,
+        "close_kind": "skillOverrides",   # 写 settings.json 的 skillOverrides（off）
+        "manual_delete": None,
+    },
+    "qwen": {
+        "label": "千问办公",
+        "skills_root": HOME / ".qwenwork" / "skills",   # 官方明文：所有 Skill 存于此
+        "usage_log": None,                              # 无等价用量账本
+        "can_close": False,                             # 实测无关闭单技能开关
+        "close_kind": None,
+        "manual_delete": HOME / ".qwenwork" / "skills",
+    },
+    "baidu": {
+        "label": "百度搭子",
+        "skills_root": None,        # 本地路径待验，需 --root 指定
+        "usage_log": None,
+        "can_close": True,          # 官方确认可按技能「禁用开关」+ 专家套件禁用
+        "close_kind": "disable-toggle",
+        "manual_delete": None,
+        "needs_verification": True,  # 本地路径/枚举方式尚未在本机验证
+        "expert_kits": True,        # 独占维度：专家套件（=MCP 应用连接）治理
+    },
+}
+
 
 # ───────────────────────────── P0 护栏数据 ─────────────────────────────
 # 默认受保护（永远不进「可关闭」候选）。可自行扩展或用 --protect / --protect-file 追加。
@@ -161,15 +202,15 @@ def norm(s: str) -> str:
     return (s or "").lower().replace("_", "-").strip()
 
 
-def load_usage(path: pathlib.Path) -> tuple:
+def load_usage(path) -> tuple:
     """返回 (usage_dict, telemetry_available: bool)。
 
     P1 已修复：原先静默吞异常返回 {}，会导致日志一旦损坏/轮换，全库无声变成
     「未使用」→ 整套关闭建议 100% 错误且无人察觉。现在改为 stderr 显式告警，
     并返回 available=False，让上层走「遥测缺口降级」分支（不判死）。
     """
-    if not path.exists():
-        print(f"[warn] 未找到用量日志：{path} —— 按「无遥测」降级，不判任何技能为可关闭。",
+    if path is None or not path.exists():
+        print(f"[warn] 未找到用量日志（{path}）—— 按「无遥测」降级，不判任何技能为可关闭。",
               file=sys.stderr)
         return {}, False
     try:
@@ -274,7 +315,7 @@ def scan_references(rows: list, ref_roots: list) -> dict:
     return referenced
 
 
-def classify(rows: list, telemetry: bool) -> dict:
+def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
     """三档分类 + 受保护桶。
 
     - protected：受保护清单命中 → 永远不关，需人工介入。
@@ -282,11 +323,16 @@ def classify(rows: list, telemetry: bool) -> dict:
     - review   ：其余「无使用记录但近期改过 / 或平台无遥测」→ 需人工确认，不可自动关。
     - keep    ：有使用记录。
 
-    🔒 P0 关键：当 telemetry=False（无遥测/读取失败），cleanup 桶恒为空，
+    🔒 P0 关键一：当 telemetry=False（无遥测/读取失败），cleanup 桶恒为空，
        所有无记录技能落入 review，并打「遥测缺口」标记。
+    🔒 能力感知关键二：当 can_close=False（平台不支持程序化关闭），**即使有遥测也绝不产出
+       cleanup**——避免给用户在千问等平台上根本执行不了的「关闭建议」。
     """
     now = time.time()
-    buckets = {"protected": [], "keep": [], "cleanup": [], "review": [], "telemetry_gap": not telemetry}
+    buckets = {
+        "protected": [], "keep": [], "cleanup": [], "review": [],
+        "telemetry_gap": not telemetry, "cannot_close": not can_close,
+    }
     for r in rows:
         if r["protected"] or r.get("locked"):
             buckets["protected"].append(r)
@@ -295,24 +341,33 @@ def classify(rows: list, telemetry: bool) -> dict:
             buckets["keep"].append(r)
             continue
         recent = (now - (r["mtime"] or 0)) < RECENT_DAYS * 86400
-        if telemetry and not recent:
+        if can_close and telemetry and not recent:
             buckets["cleanup"].append(r)
         else:
-            # 无遥测、或近期改过 → 都只能算「需人工确认」，绝不自动判死
+            # 无遥测、或近期改过、或平台不可关 → 都只能算「需人工确认」，绝不自动判死
             buckets["review"].append(r)
     return buckets
 
 
-def report(rows: list, telemetry: bool) -> None:
+def report(rows: list, telemetry: bool, profile: dict) -> None:
     total_chars = sum(len(r["name"]) + len(r["desc"]) for r in rows)
     market = sum(1 for r in rows if r["from_market"])
-    b = classify(rows, telemetry)
+    b = classify(rows, telemetry, profile["can_close"])
 
     if b["telemetry_gap"]:
         print("⚠️  [遥测缺口] 本目录/平台无可用用量日志，无法确认冷技能。")
         print("    以下结论只基于「最后修改时间」，不可作为关闭依据——请人工确认每个技能是否")
         print("    仍被「关键词触发器 / 自动化 / 专家·连接器组件」间接使用。\n")
 
+    if b["cannot_close"]:
+        print(f"🔒 注意：{profile['label']} **不支持程序化关闭**单个技能（无禁用/卸载开关）。")
+        print("    本工具只做盘点与冗余建议，绝不产出关闭动作；如须移除，请按下方手动目录指引。\n")
+
+    if profile.get("needs_verification"):
+        print(f"⚠️  {profile['label']} 的本地技能目录路径尚未在本机验证，请用 --root 指定；")
+        print("    关闭动作（禁用开关 / 专家套件）需在其客户端 UI 操作，本工具暂不代执行。\n")
+
+    print(f"平台            {profile['label']}")
     print(f"技能总数        {len(rows)}    （市场安装 {market} / 自建或自改 {len(rows) - market}）")
     print(f"有使用记录      {len(b['keep'])}")
     print(f"受保护（不关）  {len(b['protected'])}")
@@ -338,7 +393,7 @@ def report(rows: list, telemetry: bool) -> None:
 
     if b["review"]:
         print()
-        print(f"⚠️  需人工确认：无使用记录但（近期改过 或 无遥测）（{len(b['review'])} 个）—— 别急着关")
+        print(f"⚠️  需人工确认：无使用记录但（近期改过 或 无遥测 或 平台不可关）（{len(b['review'])} 个）—— 别急着关")
         for r in sorted(b["review"], key=lambda x: -x["mtime"]):
             print(f"  {r['dir']:<40}{r['lines']:>5} 行   {r['last_modified']}")
 
@@ -355,17 +410,37 @@ def report(rows: list, telemetry: bool) -> None:
                 reason = "显式标记 protected / 自保护"
             print(f"  {r['dir']:<40}（{reason}）")
 
+    # 不可关平台：补手动移除指引
+    if b["cannot_close"]:
+        md = profile.get("manual_delete")
+        if md and (b["review"] or b["cleanup"]):
+            print()
+            print(f"🧹 手动移除指引（{profile['label']} 不支持程序化关闭，请手动删除目录）：")
+            for r in sorted(b["review"] + b["cleanup"], key=lambda x: -x["lines"]):
+                print(f"   rm -rf {md / r['leaf']}")
 
-def render_overrides(rows: list, telemetry: bool) -> None:
-    b = classify(rows, telemetry)
+
+def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool, yes: bool) -> None:
+    b = classify(rows, telemetry, profile["can_close"])
+
+    # 不可关平台：只给手动指引，绝不产出关闭动作
+    if not profile["can_close"]:
+        print(f"// ⚠️ {profile['label']} 不支持程序化关闭；以下仅作「手动移除」指引，本工具不产出任何关闭动作。")
+        md = profile.get("manual_delete")
+        if md:
+            for r in sorted(b["review"], key=lambda x: x["dir"]):
+                print(f"//   手动删除：rm -rf {md / r['leaf']}")
+        print("//   （受保护技能已在下方排除，仍请勿手动删除。）")
+        for r in sorted(b["protected"], key=lambda x: x["dir"]):
+            print(f"//   🔒 {r['leaf']}")
+        return
+
+    # 可关平台：输出关闭草稿；--apply 才在同意下落地
     if b["telemetry_gap"]:
         print("// ⚠️ [遥测缺口] 无可用用量日志：下方不输出任何 off 项（避免误杀）。")
         print("//    请人工确认每个技能是否仍被关键词/专家/自动化间接使用后再处理。\n")
     print("// 🔒 仅供起草：已剔除受保护技能与近期改过的技能。")
-    print("//    ⚠️ 本工具绝不自动应用；请逐条人工确认以下技能确实无依赖后再关闭。")
-    print("//    特别注意：未显式调用 ≠ 没用——可能被你设的关键词触发器、")
-    print("//    自动化任务、或专家/连接器组件间接调用（用量日志抓不到）。")
-    print('// 写入 ~/.workbuddy/settings.json 的 skillOverrides；确认后改用 /skills 菜单（按 Esc 落盘）。')
+    print("//    ⚠️ 默认不自动应用；`--apply --yes` 才在您同意下落地（WB 写入 skillOverrides）。")
     print('"skillOverrides": {')
     for r in sorted(b["cleanup"], key=lambda x: x["dir"]):
         print(f'  "{r["leaf"]}": "off",')
@@ -379,15 +454,97 @@ def render_overrides(rows: list, telemetry: bool) -> None:
         for r in sorted(b["protected"], key=lambda x: x["dir"]):
             print(f"//   {r['leaf']}")
 
+    if do_apply:
+        if profile["close_kind"] == "skillOverrides":
+            apply_wb([r["leaf"] for r in b["cleanup"]], yes)
+        else:
+            print(f"\n// ℹ️ {profile['label']} 的关闭需在客户端 UI 操作"
+                  f"（技能列表「启用开关」/ 专家套件禁用），本工具暂不代执行。")
+
+
+def backup_settings() -> pathlib.Path:
+    """动刀前自动备份 settings.json（audit-hermes 风）。返回备份路径。"""
+    settings = HOME / ".workbuddy" / "settings.json"
+    ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    bak = settings.with_name(settings.name + f".bak.{ts}")
+    if settings.exists():
+        shutil.copy2(settings, bak)
+    return bak, settings
+
+
+def apply_wb(leaves: list, yes: bool) -> None:
+    """在你显式同意（--yes）下，把可关闭候选写入 WB 的 skillOverrides（off）。先自动备份。
+
+    dry-run（未加 --yes）只预览，不读写任何文件。
+    """
+    if not leaves:
+        print("[apply] 没有可关闭候选，无需操作。")
+        return
+    settings = HOME / ".workbuddy" / "settings.json"
+    if not yes:
+        print("[dry-run] 未加 --yes，仅预览（不读写文件）：")
+        print(json.dumps({"skillOverrides": {l: "off" for l in leaves}}, ensure_ascii=False, indent=2))
+        return
+    # 仅在真正同意时才备份 + 写入
+    bak, _ = backup_settings()
+    if settings.exists():
+        print(f"[backup] settings.json -> {bak}")
+    else:
+        print("[warn] 未找到 settings.json，将新建。")
+    data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
+    ov = data.get("skillOverrides") or {}
+    for lf in leaves:
+        ov[lf] = "off"
+    data["skillOverrides"] = ov
+    settings.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[applied] 已写入 {len(leaves)} 个 off 到 skillOverrides（四态之一；")
+    print("           确认后建议用 /skills 菜单按 Esc 落盘，便于统一查看）。")
+
+
+def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
+    """解析平台档位，返回 (profile, skills_root: Path|None, usage_path: Path|None)。
+
+    - auto：优先按已存在的目录探测（默认 workbuddy）。
+    - 百度 skills_root 为 None（未验），必须由 --root 指定。
+    - 目录不存在时返回 (profile, None, None) 让 main 友好退出。
+    """
+    agent = agent_arg
+    if agent == "auto":
+        agent = "workbuddy" if SKILLS_DIR.exists() else (
+            "qwen" if (HOME / ".qwenwork" / "skills").exists() else "workbuddy")
+    profile = PLATFORMS.get(agent)
+    if profile is None:
+        print(f"未知平台：{agent}（可选：workbuddy / qwen / baidu / auto）", file=sys.stderr)
+        return None, None, None
+    root = pathlib.Path(root_arg) if root_arg else profile["skills_root"]
+    if root is None:
+        print(f"⚠️ {profile['label']} 的本地技能目录尚未在本机验证，请用 --root 指定。", file=sys.stderr)
+        return None, None, None
+    if not root.is_dir():
+        if agent == "qwen":
+            print(f"未检测到千问办公的技能目录（{root}）。若已安装，请用 --root 指向其 skills 目录。",
+                  file=sys.stderr)
+        else:
+            print(f"找不到技能目录：{root}", file=sys.stderr)
+        return None, None, None
+    usage = pathlib.Path(usage_arg) if usage_arg else profile["usage_log"]
+    return profile, root, usage
+
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="跨平台 Agent 技能库盘点与效能体检")
-    ap.add_argument("--root", default=str(SKILLS_DIR), help="技能目录（默认 ~/.workbuddy/skills，可指向任意平台）")
-    ap.add_argument("--usage-log", default=str(USAGE_LOG), help="用量日志路径（默认 ~/.workbuddy/usage-log.json；无则按无遥测降级）")
+    ap = argparse.ArgumentParser(description="面向办公型 Agent 的技能库盘点与效能体检")
+    ap.add_argument("--agent", default="auto",
+                    choices=["workbuddy", "qwen", "baidu", "auto"],
+                    help="目标平台档位（决定能否程序化关闭）。默认 auto 探测")
+    ap.add_argument("--root", default="", help="技能目录（覆盖平台默认；默认 ~/.workbuddy/skills 等）")
+    ap.add_argument("--usage-log", default="", help="用量日志路径（覆盖平台默认；无则按无遥测降级）")
     ap.add_argument("--unused", action="store_true", help="只列出无使用记录的技能")
     ap.add_argument("--json", action="store_true", help="输出机器可读 JSON")
     ap.add_argument("--overrides", action="store_true",
                     help="为「可关闭候选」生成 skillOverrides 的 off 骨架（草稿，须人工确认）")
+    ap.add_argument("--apply", action="store_true",
+                    help="在你同意下落地关闭（仅 can_close 平台；WB 写 skillOverrides）。须配 --yes")
+    ap.add_argument("--yes", action="store_true", help="确认执行 --apply（否则仅 dry-run 预览）")
     ap.add_argument("--protect", default="", help="追加受保护技能名（逗号分隔，leaf 或 name）")
     ap.add_argument("--protect-file", default="", help="从文件读取受保护技能名（每行一个）")
     ap.add_argument("--no-safety-heuristic", action="store_true",
@@ -397,9 +554,8 @@ def main() -> int:
                     help="关闭反向依赖扫描（默认开启：扫自动化/Hook/设置里的技能引用并锁定）")
     args = ap.parse_args()
 
-    root = pathlib.Path(args.root)
-    if not root.is_dir():
-        print(f"找不到技能目录：{root}", file=sys.stderr)
+    profile, root, usage_path = resolve_agent(args.agent, args.root, args.usage_log)
+    if root is None:
         return 2
 
     # 合并受保护清单
@@ -429,37 +585,35 @@ def main() -> int:
                     r["referenced_by"] = rb
                     r["locked"] = True
 
-    usage, telemetry = load_usage(pathlib.Path(args.usage_log))
+    usage, telemetry = load_usage(usage_path)
     attach_usage(rows, usage)
 
     if args.json:
-        b = classify(rows, telemetry)
+        b = classify(rows, telemetry, profile["can_close"])
         print(json.dumps({
+            "agent": profile["label"],
+            "can_close": profile["can_close"],
             "rows": rows,
             "buckets": {k: [r["dir"] for r in v] for k, v in b.items() if isinstance(v, list)},
             "telemetry_gap": b["telemetry_gap"],
+            "cannot_close": b["cannot_close"],
         }, ensure_ascii=False, indent=2))
         return 0
 
     if args.overrides:
-        render_overrides(rows, telemetry)
+        render_overrides(rows, telemetry, profile, args.apply, args.yes)
         return 0
 
     if args.unused:
-        b = classify(rows, telemetry)
-        print(f"== 可关闭候选（{len(b['cleanup'])} 个）==")
-        for r in sorted(b["cleanup"], key=lambda x: -x["lines"]):
+        b = classify(rows, telemetry, profile["can_close"])
+        print(f"== 需关注（无使用记录）==")
+        for r in sorted(b["review"] + b["cleanup"], key=lambda x: -x["lines"]):
             print(f"{r['dir']:<40}{r['lines']:>5} 行   {r['last_modified']}")
-        print(f"\n== 需人工确认（{len(b['review'])} 个）==")
-        for r in sorted(b["review"], key=lambda x: -x["mtime"]):
-            print(f"{r['dir']:<40}{r['lines']:>5} 行   {r['last_modified']}")
-        if b["protected"]:
-            print(f"\n== 受保护（{len(b['protected'])} 个，已排除）==")
-            for r in sorted(b["protected"], key=lambda x: x["dir"]):
-                print(f"{r['dir']:<40}")
+        if b["cannot_close"]:
+            print(f"\n⚠️ {profile['label']} 不支持程序化关闭；以上仅作人工审查/手动移除参考。")
         return 0
 
-    report(rows, telemetry)
+    report(rows, telemetry, profile)
     return 0
 
 

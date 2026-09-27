@@ -18,16 +18,31 @@
 脚本在 `scripts/skill_inventory.py`。默认盘点 WorkBuddy 技能库：
 
 ```bash
-python scripts/skill_inventory.py                 # 完整表格 + 四档分类
-python scripts/skill_inventory.py --root DIR       # 盘点任意办公 Agent 的技能目录
-python scripts/skill_inventory.py --overrides      # 起草可关闭清单（仅草稿，不执行）
-python scripts/skill_inventory.py --json           # 机器可读输出
-python scripts/skill_inventory.py --protect a,b,c  # 追加受保护技能
+python scripts/skill_inventory.py                          # 完整表格 + 四档分类（auto 探测平台）
+python scripts/skill_inventory.py --agent workbuddy        # 指定平台档位
+python scripts/skill_inventory.py --agent qwen             # 千问办公（可扫不可关）
+python scripts/skill_inventory.py --agent baidu --root DIR # 百度搭子（可扫可关，路径待验）
+python scripts/skill_inventory.py --overrides              # 起草可关闭清单（仅草稿）
+python scripts/skill_inventory.py --overrides --apply --yes   # WB：在你同意下写入 skillOverrides 关闭
+python scripts/skill_inventory.py --json                   # 机器可读输出
+python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技能
 ```
 
-跨办公型 Agent：用 `--root` 指向目标 Agent 的技能目录（如 `~/.qwenwork/skills/`、
-百度搭子本地 skills 目录、天禧AI 技能目录），即可为不同办公 Agent 做同一套盘点。
+跨办公型 Agent：用 `--agent` 选平台档位（workbuddy / qwen / baidu / auto），或用 `--root` 直接指向技能目录。
 用量日志用 `--usage-log` 指定；**若该平台无用量日志，工具会自动降级为「不判任何技能可关闭」**。
+
+## 平台档位与能力感知关闭
+
+不同 Agent 的「关闭」能力不同，本工具按 `can_close` 分叉——**不可关平台绝不产出任何关闭动作**，只给报告 + 手动移除指引：
+
+| 平台 | 可扫描 | 有用量账本 | 可程序化关闭 | 本工具行为 |
+|------|--------|-----------|-------------|-----------|
+| **WorkBuddy** | ✅ `~/.workbuddy/skills` | ✅ `usage-log.json` | ✅ `skillOverrides` 四态 | 出盘点 + 可关闭草稿；`--apply --yes` 在你同意下写入 `off` |
+| **千问办公** | ✅ `~/.qwenwork/skills` | ❌ 无 | ❌ **无禁用开关**（实测） | 仅盘点 + 手动删目录指引，**绝不**给关闭动作 |
+| **百度搭子** | ✅ 本地沙箱（路径待验→`--root`） | ❌ 无 | ✅ 禁用开关 + 专家套件禁用 | 出盘点 + 关闭指引；独占「专家套件」治理维度 |
+| **天禧AI** | ❓ 云端沙箱 | ❓ 未知 | ❓ 未知 | 暂不作为运行时适配目标，见 `references/tianxi-fit-assessment.md` |
+
+> 原则：**未显式调用 ≠ 没用**。千问这类无关闭开关的平台，本工具只做「体检」，把「动刀」留给你手动处理，避免给出你根本执行不了的「关闭建议」。
 
 ## 🔒 P0 护栏（硬性，不可违背）
 
@@ -36,6 +51,9 @@ python scripts/skill_inventory.py --protect a,b,c  # 追加受保护技能
 1. **绝不自动关闭技能。** 只输出建议文本，不写 `settings.json`、不调用任何禁用/删除接口。
    即使生成了 `--overrides` 骨架，也**必须等用户逐条显式确认后**才能动手，且优先引导用户用宿主自带的
    `/skills` 菜单（按 Esc 才落盘）而非直接改配置文件。
+   · **在你同意下关闭（仅可关平台）**：在 WorkBuddy 等 `can_close` 平台，可加 `--apply --yes` 让工具**代你**
+   把候选写入 `skillOverrides` 的 `off` 态；该动作**先自动备份 `settings.json`、且缺 `--yes` 只做 dry-run 预览**，
+   绝不静默执行。千问等不可关平台会直接拒绝 `--apply`。
 2. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
    `--protect` 追加的。报告里它们单列在「受保护」一档。
