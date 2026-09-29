@@ -3,8 +3,8 @@
 """skill-inventory —— 面向办公型 Agent 的技能库盘点与效能体检。
 
     python skill_inventory.py                      # WorkBuddy 默认盘点
-    python skill_inventory.py --agent qwen         # 千问办公（可扫不可关）
-    python skill_inventory.py --agent baidu --root DIR   # 百度搭子（可扫可关，路径待验）
+    python skill_inventory.py --agent qwen         # 千问办公（有调用记录则显示，关闭走连接器）
+    python skill_inventory.py --agent baidu         # 百度搭子（多根自动探测：全局/会话/插件/禁用；无调用遥测）
     python skill_inventory.py --unused             # 只看无使用记录的
     python skill_inventory.py --json               # 机器可读
     python skill_inventory.py --overrides          # 起草可关闭清单（草稿，需人工确认）
@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -64,6 +65,7 @@ except ImportError:       # 零依赖环境下回退
     yaml = None
 
 HOME = pathlib.Path.home()
+APPDATA = pathlib.Path(os.environ.get("APPDATA", HOME / "AppData" / "Roaming"))
 SKILLS_DIR = HOME / ".workbuddy" / "skills"
 USAGE_LOG = HOME / ".workbuddy" / "usage-log.json"
 
@@ -72,34 +74,36 @@ USAGE_LOG = HOME / ".workbuddy" / "usage-log.json"
 RECENT_DAYS = 30
 
 # ───────────────────────────── 平台档位（能力感知） ─────────────────────────────
-# 每个平台的能力不同：核心分叉在 `can_close`（能否程序化关闭单技能）。
-# 不可关平台 → 只报告 + 手动移除指引，绝不产出关闭动作。
+# skills_root   ：技能根目录列表。多数平台单根；百度搭子多根（全局/会话/插件/禁用分散）。
+# usage_log     ：用量账本路径；为 None 表示本平台未向技能暴露单技能用量（遥测缺口降级）。
+# usage_adapter ：用量格式适配器键（None=WorkBuddy 原生；"qwen"=usageCount/lastUsedAt）。
+# can_close     ：工具是否产出「可关闭候选 + 关闭草稿」。
+# close_kind    ："filesystem"（WB 写 skillOverrides）/ "connector"（千问/百度经连接器或 UI 开关，工具不代执行）。
 PLATFORMS = {
     "workbuddy": {
         "label": "WorkBuddy",
-        "skills_root": HOME / ".workbuddy" / "skills",
+        "skills_root": [HOME / ".workbuddy" / "skills"],
         "usage_log": HOME / ".workbuddy" / "usage-log.json",
+        "usage_adapter": None,
         "can_close": True,
-        "close_kind": "skillOverrides",   # 写 settings.json 的 skillOverrides（off）
-        "manual_delete": None,
+        "close_kind": "filesystem",
     },
     "qwen": {
         "label": "千问办公",
-        "skills_root": HOME / ".qwenwork" / "skills",   # 官方明文：所有 Skill 存于此
-        "usage_log": None,                              # 无等价用量账本
-        "can_close": False,                             # 实测无关闭单技能开关
-        "close_kind": None,
-        "manual_delete": HOME / ".qwenwork" / "skills",
+        "skills_root": [HOME / ".qwenworkcn" / "skills"],   # 实测真机路径（非 .qwenwork）
+        "usage_log": HOME / ".qwenworkcn" / "skill-usage.json",  # 实测存在：usageCount/lastUsedAt
+        "usage_adapter": "qwen",
+        "can_close": True,            # 连接器 supportedActions 含 enable/disable/remove → 可关
+        "close_kind": "connector",    # 关闭通道在 qwenwork 连接器，不经文件系统
     },
     "baidu": {
         "label": "百度搭子",
-        "skills_root": None,        # 本地路径待验，需 --root 指定
-        "usage_log": None,
-        "can_close": True,          # 官方确认可按技能「禁用开关」+ 专家套件禁用
-        "close_kind": "disable-toggle",
-        "manual_delete": None,
-        "needs_verification": True,  # 本地路径/枚举方式尚未在本机验证
-        "expert_kits": True,        # 独占维度：专家套件（=MCP 应用连接）治理
+        "skills_root": None,          # 多根（全局/会话/插件/禁用），由 detect_baidu_roots 自动探测
+        "usage_log": None,            # 本机/云端均未暴露单技能用量日志 → 遥测缺口
+        "usage_adapter": None,
+        "can_close": True,            # 禁用开关 + 专家套件禁用（在客户端 UI）
+        "close_kind": "connector",
+        "multi_root": True,
     },
 }
 
@@ -202,62 +206,227 @@ def norm(s: str) -> str:
     return (s or "").lower().replace("_", "-").strip()
 
 
-def load_usage(path) -> tuple:
+def _adapt_qwen(raw: dict) -> dict:
+    """千问 skill-usage.json：{"<skill>": {"usageCount": n, "lastUsedAt": <ms>}}
+    归一化为内部统一 schema：{uid: {"lastUsedDate": iso, "recentDates": [], "uses": n}}。"""
+    out = {}
+    for uid, v in raw.items():
+        if not isinstance(v, dict):
+            continue
+        n = int(v.get("usageCount") or 0)
+        ms = v.get("lastUsedAt")
+        iso = ""
+        if ms:
+            try:
+                iso = _dt.datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d")
+            except Exception:
+                iso = ""
+        out[uid] = {"lastUsedDate": iso, "recentDates": [], "uses": n}
+    return out
+
+
+def load_usage(path, adapter=None) -> tuple:
     """返回 (usage_dict, telemetry_available: bool)。
+
+    usage_dict 统一为 {uid: {"lastUsedDate": iso, "recentDates": [...], "uses": n}}。
+    adapter="qwen" 时先把千问格式归一化。
 
     P1 已修复：原先静默吞异常返回 {}，会导致日志一旦损坏/轮换，全库无声变成
     「未使用」→ 整套关闭建议 100% 错误且无人察觉。现在改为 stderr 显式告警，
     并返回 available=False，让上层走「遥测缺口降级」分支（不判死）。
     """
     if path is None or not path.exists():
-        print(f"[warn] 未找到用量日志（{path}）—— 按「无遥测」降级，不判任何技能为可关闭。",
+        print(f"[warn] 未找到用量日志（未配置用量日志路径）—— 按「无遥测」降级，不判任何技能为可关闭。",
               file=sys.stderr)
         return {}, False
     try:
-        return (json.loads(path.read_text(encoding="utf-8")).get("skills") or {}), True
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if adapter == "qwen":
+            data = _adapt_qwen(raw)
+        else:
+            data = raw.get("skills") or {}
+        return data, True
     except Exception as e:  # noqa: BLE001 - 我们就是要兜住一切解析错误并告警
         print(f"[warn] 用量日志读取失败（{e}）—— 按「无遥测」降级，不判任何技能为可关闭。",
               file=sys.stderr)
         return {}, False
 
 
-def scan(root: pathlib.Path) -> list:
-    rows = []
-    for p in sorted(root.rglob("SKILL.md")):
-        if ".git" in p.parts:
+def scan(roots: list) -> list:
+    """扫描技能根目录（支持多根合并），返回技能行列表。
+
+    roots: list of dict {"path": Path, "label": str, "disabled": bool}
+      - label 非空且多根时，dir 字段加区域前缀便于区分同名技能。
+      - disabled=True 表示该区域是「已禁用」库（如 .skills_disabled）。
+
+    P1-4 已修复：rglob 会连带捞出 <skill>/references/SKILL.md 之类的嵌套文件，
+    被误计为独立技能。现采用「最浅 SKILL.md 优先」规则——若某 SKILL.md 的祖先目录
+    （介于其与 root 之间）也存在 SKILL.md，则该文件视为嵌套引用，跳过。
+
+    多根去重：同名 leaf 出现在多个区域时，优先保留非 disabled 区域的那条
+    （避免技能同时存在于 skills/ 与 .skills_disabled/ 时被重复计数）。
+    """
+    multi = len(roots) > 1
+    raw: list = []
+    for rd in roots:
+        root = rd["path"]
+        label = rd.get("label", "")
+        disabled = rd.get("disabled", False)
+        # 第一遍：收集所有技能目录（含 SKILL.md 的目录）
+        skill_dirs = [p.parent for p in root.rglob("SKILL.md") if ".git" not in p.parts]
+        skill_dir_set = set(skill_dirs)
+        for sd in sorted(skill_dirs):
+            # 排除嵌套：祖先（sd 与 root 之间，不含 root）若也是技能目录 → 跳过
+            cur = sd.parent
+            nested = False
+            while cur != root:
+                if cur in skill_dir_set:
+                    nested = True
+                    break
+                if cur.parent == cur:        # 已到文件系统根，防死循环
+                    break
+                cur = cur.parent
+            if nested:
+                continue
+            p = sd / "SKILL.md"
+            text = p.read_text(encoding="utf-8", errors="replace")
+            fm = parse_frontmatter(text)
+            files = [f for f in sd.rglob("*") if f.is_file() and ".git" not in f.parts]
+            total = sum(f.stat().st_size for f in files)
+            mtime = max((f.stat().st_mtime for f in files), default=0)
+            leaf = sd.name
+            name = fm.get("name") or leaf
+            # 受保护判定（P0）：自保护清单 ∪ frontmatter 显式标记 ∪ 安全/审计类关键词启发式
+            safety_hit = any(k in norm(name) or k in norm(leaf) for k in SAFETY_KEYWORDS)
+            protected = (
+                norm(leaf) in {norm(x) for x in PROTECTED_LEAVES}
+                or str(fm.get("protected", "")).strip().lower() in ("true", "1", "yes", "y", "protected")
+                or str(fm.get("critical", "")).strip().lower() in ("true", "1", "yes")
+                or safety_hit
+            )
+            rel = sd.relative_to(root).as_posix()
+            d = f"{label}/{rel}" if (multi and label) else rel
+            raw.append({
+                "dir": d,
+                "leaf": leaf,
+                "name": name,
+                "desc": fm.get("description") or "",
+                "from_market": (sd / "_meta.json").exists(),
+                "lines": len(text.splitlines()),
+                "files": len(files),
+                "kb": round(total / 1024, 1),
+                "last_modified": _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d") if mtime else "?",
+                "mtime": mtime,
+                "protected": protected,
+                "safety_hit": safety_hit,
+                "locked": False,
+                "referenced_by": [],
+                "region": label,
+                "disabled_region": disabled,
+            })
+    # 多根去重：同名 leaf 优先非 disabled 区域；同时记录该 leaf 跨越的区域数与
+    # 其中「非禁用」区域数（用于 P0-1 在报告中区分「真·多份激活」与「激活+禁用副本」）。
+    seen: dict = {}
+    order: list = []
+    for r in raw:
+        lf = norm(r["leaf"])
+        if lf not in seen:
+            seen[lf] = {"row": r, "regions": {r["region"]},
+                        "active": 0 if r["disabled_region"] else 1}
+            order.append(lf)
+        else:
+            seen[lf]["regions"].add(r["region"])
+            if not r["disabled_region"]:
+                seen[lf]["active"] += 1
+            cur = seen[lf]["row"]
+            if cur["disabled_region"] and not r["disabled_region"]:
+                seen[lf]["row"] = r
+    out = []
+    for lf in order:
+        info = seen[lf]
+        row = info["row"]
+        row["region_count"] = len(info["regions"])
+        row["region_active_count"] = info["active"]
+        out.append(row)
+    return out
+
+
+def _est_tokens(text: str) -> float:
+    """CJK 字符约占 1.6 token/字，其余约 4 字符/token（P2-6 修正原 chars/3.2 低估）。"""
+    cjk = sum(1 for ch in text if ord(ch) > 0x2E80)
+    other = len(text) - cjk
+    return cjk / 1.6 + other / 4.0
+
+
+def _col_w(s: str) -> int:
+    return sum(2 if ord(ch) > 0x2E80 else 1 for ch in s)
+
+
+def _pad(s: str, width: int, align: str = "<") -> str:
+    """按显示列（CJK=2）截断/补空格，保证表格对齐（P2-6）。"""
+    cols = _col_w(s)
+    if cols > width:
+        out, c = [], 0
+        for ch in s:
+            w = 2 if ord(ch) > 0x2E80 else 1
+            if c + w > width:
+                break
+            c += w
+            out.append(ch)
+        s, cols = "".join(out) + "…", width
+    return (s + " " * (width - cols)) if align == "<" else (" " * (width - cols) + s)
+
+
+def find_duplicates(rows: list) -> dict:
+    """P0-1：按归一化名称分组，找出同名（疑似重复/冗余）技能。"""
+    by_name: dict = {}
+    for r in rows:
+        by_name.setdefault(norm(r["name"]), []).append(r)
+    return {k: v for k, v in by_name.items() if len(v) > 1}
+
+
+def detect_baidu_roots(root_arg) -> list:
+    """百度搭子多根探测：全局主库 + 各会话的 skills/plugins/.skills_disabled。
+
+    返回 list of {"path","label","disabled"}；无法探测返回 None。
+    可用 --root 显式指向单个区域目录（支持逗号分隔多个）。
+    """
+    if root_arg:
+        parts = [x.strip() for x in root_arg.split(",") if x.strip()]
+        out = []
+        for x in parts:
+            p = pathlib.Path(x)
+            out.append({
+                "path": p,
+                "label": p.name,
+                "disabled": (".skills_disabled" in p.parts or ".plugins_disabled" in p.parts),
+            })
+        return out or None
+    xdg = APPDATA / "qianfan-desktop-app" / "qianfan_desk_xdg"
+    if not xdg.is_dir():
+        return None
+    roots = []
+    g = xdg / "global" / "data" / "skills"
+    if g.is_dir() and any(g.rglob("SKILL.md")):
+        roots.append({"path": g, "label": "全局主库", "disabled": False})
+    for sess in sorted(xdg.iterdir()):
+        if not sess.is_dir():
             continue
-        text = p.read_text(encoding="utf-8", errors="replace")
-        fm = parse_frontmatter(text)
-        files = [f for f in p.parent.rglob("*") if f.is_file() and ".git" not in f.parts]
-        total = sum(f.stat().st_size for f in files)
-        mtime = max((f.stat().st_mtime for f in files), default=0)
-        leaf = p.parent.name
-        name = fm.get("name") or leaf
-        # 受保护判定（P0）：自保护清单 ∪ frontmatter 显式标记 ∪ 安全/审计类关键词启发式
-        safety_hit = any(k in norm(name) or k in norm(leaf) for k in SAFETY_KEYWORDS)
-        protected = (
-            norm(leaf) in {norm(x) for x in PROTECTED_LEAVES}
-            or str(fm.get("protected", "")).strip().lower() in ("true", "1", "yes", "y", "protected")
-            or str(fm.get("critical", "")).strip().lower() in ("true", "1", "yes")
-            or safety_hit
-        )
-        rows.append({
-            "dir": p.parent.relative_to(root).as_posix(),
-            "leaf": leaf,
-            "name": name,
-            "desc": fm.get("description") or "",
-            "from_market": (p.parent / "_meta.json").exists(),
-            "lines": len(text.splitlines()),
-            "files": len(files),
-            "kb": round(total / 1024, 1),
-            "last_modified": _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d") if mtime else "?",
-            "mtime": mtime,
-            "protected": protected,
-            "safety_hit": safety_hit,
-            "locked": False,
-            "referenced_by": [],
-        })
-    return rows
+        for sub, lab, dis in (
+            ("data/skills", "会话技能", False),
+            ("data/plugins", "专家插件", False),
+            ("data/.skills_disabled", "会话禁用", True),
+        ):
+            d = sess / sub
+            if d.is_dir() and any(d.rglob("SKILL.md")):
+                roots.append({"path": d, "label": lab, "disabled": dis})
+    gd = xdg / "global" / "data" / ".skills_disabled"
+    if gd.is_dir() and any(gd.rglob("SKILL.md")):
+        roots.append({"path": gd, "label": "全局禁用", "disabled": True})
+    gp = xdg / "global" / "data" / ".plugins_disabled"
+    if gp.is_dir() and any(gp.rglob("SKILL.md")):
+        roots.append({"path": gp, "label": "全局插件禁用", "disabled": True})
+    return roots or None
 
 
 def attach_usage(rows: list, usage: dict) -> None:
@@ -271,7 +440,7 @@ def attach_usage(rows: list, usage: dict) -> None:
                     best = (uid, v)
         r["used_as"] = best[0] if best else None
         r["last_used"] = best[1].get("lastUsedDate") if best else None
-        r["uses"] = len(best[1].get("recentDates", [])) if best else 0
+        r["uses"] = best[1].get("uses", len(best[1].get("recentDates", []))) if best else 0
 
 
 def scan_references(rows: list, ref_roots: list) -> dict:
@@ -351,6 +520,7 @@ def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
 
 def report(rows: list, telemetry: bool, profile: dict) -> None:
     total_chars = sum(len(r["name"]) + len(r["desc"]) for r in rows)
+    total_tokens = sum(_est_tokens(r["name"] + r["desc"]) for r in rows)
     market = sum(1 for r in rows if r["from_market"])
     b = classify(rows, telemetry, profile["can_close"])
 
@@ -359,13 +529,9 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
         print("    以下结论只基于「最后修改时间」，不可作为关闭依据——请人工确认每个技能是否")
         print("    仍被「关键词触发器 / 自动化 / 专家·连接器组件」间接使用。\n")
 
-    if b["cannot_close"]:
-        print(f"🔒 注意：{profile['label']} **不支持程序化关闭**单个技能（无禁用/卸载开关）。")
-        print("    本工具只做盘点与冗余建议，绝不产出关闭动作；如须移除，请按下方手动目录指引。\n")
-
-    if profile.get("needs_verification"):
-        print(f"⚠️  {profile['label']} 的本地技能目录路径尚未在本机验证，请用 --root 指定；")
-        print("    关闭动作（禁用开关 / 专家套件）需在其客户端 UI 操作，本工具暂不代执行。\n")
+    if profile.get("close_kind") == "connector":
+        print(f"🔒 注意：{profile['label']} 的关闭/禁用在客户端 UI 或对应连接器操作"
+              f"（技能列表「启用开关」/ 专家套件禁用），本工具不代执行任何关闭动作。\n")
 
     print(f"平台            {profile['label']}")
     print(f"技能总数        {len(rows)}    （市场安装 {market} / 自建或自改 {len(rows) - market}）")
@@ -373,15 +539,15 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
     print(f"受保护（不关）  {len(b['protected'])}")
     print(f"可关闭候选      {len(b['cleanup'])}    （仍须人工逐条确认）")
     print(f"需人工确认      {len(b['review'])}")
-    print(f"清单占用        {total_chars} 字符  ≈ {total_chars / 3.2:.0f} tokens / 每轮对话")
+    print(f"清单占用        {total_chars} 字符  ≈ {total_tokens:.0f} tokens / 每轮对话")
     print()
 
-    print(f"{'目录':<36}{'':<2}{'行':>5}{'KB':>8}{'来源':>6}{'最后改':>11}{'用':>4}{'最后用':>11}")
-    print("-" * 84)
+    print(f"{_pad('目录',36)}{'':<2}{'行':>5}{'KB':>8}{'来源':>6}{'最后改':>11}{'用':>4}{'最后用':>11}")
+    print("-" * 88)
     for r in sorted(rows, key=lambda x: -(x["mtime"] or 0)):
         src = "市场" if r["from_market"] else "自建"
         tag = "🔒" if r["protected"] else ("⚠" if r in b["review"] else "")
-        print(f"{r['dir']:<36}{tag:<2}{r['lines']:>5}{r['kb']:>8}{src:>6}"
+        print(f"{_pad(r['dir'],36)}{tag:<2}{r['lines']:>5}{r['kb']:>8}{src:>6}"
               f"{r['last_modified']:>11}{r['uses']:>4}{r['last_used'] or '—':>11}")
 
     if b["cleanup"]:
@@ -389,13 +555,13 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
         print(f"🔻 可关闭候选：无使用记录 且 超过 {RECENT_DAYS} 天没改过（{len(b['cleanup'])} 个）")
         print("   ⚠ 仅建议，未经你显式确认不得关闭；先确认无关键词/专家触发依赖。")
         for r in sorted(b["cleanup"], key=lambda x: -x["lines"]):
-            print(f"  {r['dir']:<40}{r['lines']:>5} 行   {r['last_modified']}")
+            print(f"  {_pad(r['dir'],40)}{r['lines']:>5} 行   {r['last_modified']}")
 
     if b["review"]:
         print()
         print(f"⚠️  需人工确认：无使用记录但（近期改过 或 无遥测 或 平台不可关）（{len(b['review'])} 个）—— 别急着关")
         for r in sorted(b["review"], key=lambda x: -x["mtime"]):
-            print(f"  {r['dir']:<40}{r['lines']:>5} 行   {r['last_modified']}")
+            print(f"  {_pad(r['dir'],40)}{r['lines']:>5} 行   {r['last_modified']}")
 
     if b["protected"]:
         print()
@@ -408,34 +574,46 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
                 reason = "安全/审计类"
             else:
                 reason = "显式标记 protected / 自保护"
-            print(f"  {r['dir']:<40}（{reason}）")
+            print(f"  {_pad(r['dir'],40)}（{reason}）")
 
-    # 不可关平台：补手动移除指引
-    if b["cannot_close"]:
-        md = profile.get("manual_delete")
-        if md and (b["review"] or b["cleanup"]):
-            print()
-            print(f"🧹 手动移除指引（{profile['label']} 不支持程序化关闭，请手动删除目录）：")
-            for r in sorted(b["review"] + b["cleanup"], key=lambda x: -x["lines"]):
-                print(f"   rm -rf {md / r['leaf']}")
+    # P0-1：疑似重复/冗余技能
+    #   (a) 同一 leaf 在 ≥2 个「非禁用」区域都激活 → 真·多份加载（重点）；
+    #   (b) 同一 leaf 跨区但仅 1 个激活（多为「激活 + 禁用副本」）→ 低优先提示；
+    #   (c) 不同 leaf 但归一化名称相同 → 疑似重名技能。
+    genuine = [r for r in rows if r.get("region_active_count", 1) >= 2]
+    overlap = [r for r in rows if r.get("region_count", 1) > 1
+               and r.get("region_active_count", 1) < 2]
+    name_dups = find_duplicates(rows)
+    if genuine or overlap or name_dups:
+        print()
+        print(f"🔁 疑似重复/跨区（共 {len(genuine) + len(overlap) + len(name_dups)} 项）：")
+        for r in sorted(genuine, key=lambda x: x["dir"]):
+            print(f"  · ⚠ 真·多份激活：{_pad(r['dir'], 28)} （{r['region_active_count']} 个区域均激活）")
+        for r in sorted(overlap, key=lambda x: x["dir"]):
+            print(f"  · 激活+禁用副本：{_pad(r['dir'], 24)} （跨 {r['region_count']} 区）")
+        for name, grp in sorted(name_dups.items()):
+            locs = ", ".join(_pad(r["dir"], 26) for r in grp)
+            print(f"  · 同名：{name}  ←  {locs}")
 
 
 def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool, yes: bool) -> None:
     b = classify(rows, telemetry, profile["can_close"])
 
-    # 不可关平台：只给手动指引，绝不产出关闭动作
-    if not profile["can_close"]:
-        print(f"// ⚠️ {profile['label']} 不支持程序化关闭；以下仅作「手动移除」指引，本工具不产出任何关闭动作。")
-        md = profile.get("manual_delete")
-        if md:
-            for r in sorted(b["review"], key=lambda x: x["dir"]):
-                print(f"//   手动删除：rm -rf {md / r['leaf']}")
-        print("//   （受保护技能已在下方排除，仍请勿手动删除。）")
+    # 连接器平台（千问/百度）：关闭在客户端 UI，不产出 WB skillOverrides 骨架
+    if profile.get("close_kind") == "connector":
+        print(f"// ⚠️ {profile['label']} 关闭通道为连接器/UI，本工具不产出任何关闭动作或 WB 骨架。")
+        print("//    以下仅为「可关闭候选 / 需确认」清单，请在客户端确认后手动关闭。\n")
+        if b["telemetry_gap"]:
+            print("// ⚠️ [遥测缺口] 无可用用量日志：不列出可关闭候选（避免误杀）。\n")
+        for r in sorted(b["cleanup"], key=lambda x: x["dir"]):
+            print(f"//   🔻 候选：{r['dir']}")
+        for r in sorted(b["review"], key=lambda x: x["dir"]):
+            print(f"//   ⚠ 待确认：{r['dir']}")
         for r in sorted(b["protected"], key=lambda x: x["dir"]):
-            print(f"//   🔒 {r['leaf']}")
+            print(f"//   🔒 受保护：{r['leaf']}")
         return
 
-    # 可关平台：输出关闭草稿；--apply 才在同意下落地
+    # 可关平台（filesystem，WorkBuddy）：输出关闭草稿；--apply 才在同意下落地
     if b["telemetry_gap"]:
         print("// ⚠️ [遥测缺口] 无可用用量日志：下方不输出任何 off 项（避免误杀）。")
         print("//    请人工确认每个技能是否仍被关键词/专家/自动化间接使用后再处理。\n")
@@ -455,7 +633,7 @@ def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool,
             print(f"//   {r['leaf']}")
 
     if do_apply:
-        if profile["close_kind"] == "skillOverrides":
+        if profile["close_kind"] == "filesystem":
             apply_wb([r["leaf"] for r in b["cleanup"]], yes)
         else:
             print(f"\n// ℹ️ {profile['label']} 的关闭需在客户端 UI 操作"
@@ -502,33 +680,55 @@ def apply_wb(leaves: list, yes: bool) -> None:
 
 
 def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
-    """解析平台档位，返回 (profile, skills_root: Path|None, usage_path: Path|None)。
+    """解析平台档位，返回 (profile, roots, usage_path, agent_key)。
 
-    - auto：优先按已存在的目录探测（默认 workbuddy）。
-    - 百度 skills_root 为 None（未验），必须由 --root 指定。
-    - 目录不存在时返回 (profile, None, None) 让 main 友好退出。
+    roots: list of {"path","label","disabled"}；百度为自动探测的多根。
+    目录不存在 / 无法探测时返回 (None, None, None, None) 让 main 友好退出。
     """
     agent = agent_arg
     if agent == "auto":
-        agent = "workbuddy" if SKILLS_DIR.exists() else (
-            "qwen" if (HOME / ".qwenwork" / "skills").exists() else "workbuddy")
+        if SKILLS_DIR.exists():
+            agent = "workbuddy"
+        elif (HOME / ".qwenworkcn" / "skills").exists():
+            agent = "qwen"
+        else:
+            agent = "workbuddy"
     profile = PLATFORMS.get(agent)
     if profile is None:
         print(f"未知平台：{agent}（可选：workbuddy / qwen / baidu / auto）", file=sys.stderr)
-        return None, None, None
-    root = pathlib.Path(root_arg) if root_arg else profile["skills_root"]
-    if root is None:
-        print(f"⚠️ {profile['label']} 的本地技能目录尚未在本机验证，请用 --root 指定。", file=sys.stderr)
-        return None, None, None
-    if not root.is_dir():
-        if agent == "qwen":
-            print(f"未检测到千问办公的技能目录（{root}）。若已安装，请用 --root 指向其 skills 目录。",
+        return None, None, None, None
+
+    # 百度：多根自动探测（或 --root 显式指定）
+    if profile.get("multi_root"):
+        roots = detect_baidu_roots(root_arg)
+        if not roots:
+            print(f"⚠️ 未找到 {profile['label']} 的本地技能目录（预期位于 "
+                  f"{APPDATA / 'qianfan-desktop-app' / 'qianfan_desk_xdg'}）。"
+                  f"请用 --root 指向某个技能区域目录。", file=sys.stderr)
+            return None, None, None, None
+        return profile, roots, None, agent
+
+    # 单根平台（workbuddy / qwen）：skills_root 固定为单元素列表
+    if root_arg:
+        roots = [{"path": pathlib.Path(root_arg), "label": "", "disabled": False}]
+    else:
+        sr = profile["skills_root"]
+        if not sr:
+            print(f"⚠️ {profile['label']} 的本地技能目录尚未在本机验证，请用 --root 指定。",
                   file=sys.stderr)
-        else:
-            print(f"找不到技能目录：{root}", file=sys.stderr)
-        return None, None, None
+            return None, None, None, None
+        roots = [{"path": p, "label": "", "disabled": False} for p in sr]
+    missing = [r for r in roots if not r["path"].is_dir()]
+    if missing:
+        for r in missing:
+            if agent == "qwen":
+                print(f"未检测到千问办公的技能目录（{r['path']}）。若已安装，请用 --root 指向其 skills 目录。",
+                      file=sys.stderr)
+            else:
+                print(f"找不到技能目录：{r['path']}", file=sys.stderr)
+        return None, None, None, None
     usage = pathlib.Path(usage_arg) if usage_arg else profile["usage_log"]
-    return profile, root, usage
+    return profile, roots, usage, agent
 
 
 def main() -> int:
@@ -554,8 +754,8 @@ def main() -> int:
                     help="关闭反向依赖扫描（默认开启：扫自动化/Hook/设置里的技能引用并锁定）")
     args = ap.parse_args()
 
-    profile, root, usage_path = resolve_agent(args.agent, args.root, args.usage_log)
-    if root is None:
+    profile, roots, usage_path, agent_key = resolve_agent(args.agent, args.root, args.usage_log)
+    if roots is None:
         return 2
 
     # 合并受保护清单
@@ -570,13 +770,17 @@ def main() -> int:
         global SAFETY_KEYWORDS
         SAFETY_KEYWORDS = ()  # 关闭启发式
 
-    rows = scan(root)
+    rows = scan(roots)
 
     # 反向依赖扫描（P0 增强）：锁定被自动化 / Hook / 专家·连接器引用的技能
     if not args.no_ref_scan:
         ref_roots = [str(p) for p in DEFAULT_REF_ROOTS if pathlib.Path(p).exists()]
         if args.refs:
             ref_roots += [x for x in args.refs.split(",") if x.strip()]
+        if not ref_roots and agent_key != "workbuddy":
+            print(f"[note] {profile['label']} 未找到可扫描的反向依赖根（自动化/Hook），"
+                  f"反向依赖锁定暂不可用；如有关键词触发器引用，请人工确认。",
+                  file=sys.stderr)
         if ref_roots:
             referenced = scan_references(rows, ref_roots)
             for r in rows:
@@ -585,7 +789,7 @@ def main() -> int:
                     r["referenced_by"] = rb
                     r["locked"] = True
 
-    usage, telemetry = load_usage(usage_path)
+    usage, telemetry = load_usage(usage_path, profile.get("usage_adapter"))
     attach_usage(rows, usage)
 
     if args.json:

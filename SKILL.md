@@ -27,8 +27,8 @@ version: 0.1.0
 ```bash
 python scripts/skill_inventory.py                          # 完整表格 + 四档分类（auto 探测平台）
 python scripts/skill_inventory.py --agent workbuddy        # 指定平台档位
-python scripts/skill_inventory.py --agent qwen             # 千问办公（可扫不可关）
-python scripts/skill_inventory.py --agent baidu --root DIR # 百度搭子（可扫可关，路径待验）
+python scripts/skill_inventory.py --agent qwen             # 千问办公（显示调用记录；关闭走连接器/UI）
+python scripts/skill_inventory.py --agent baidu           # 百度搭子（多根自动探测；无调用遥测 → 全库需人工确认）
 python scripts/skill_inventory.py --overrides              # 起草可关闭清单（草稿）
 python scripts/skill_inventory.py --overrides --apply --yes   # WB：在你同意下写入 skillOverrides 关闭
 python scripts/skill_inventory.py --json                   # 机器可读
@@ -44,12 +44,12 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
 
 | 平台 | 可扫描 | 有用量账本 | 可程序化关闭 | 本工具行为 |
 |------|--------|-----------|-------------|-----------|
-| **WorkBuddy** | ✅ `~/.workbuddy/skills` | ✅ `usage-log.json` | ✅ `skillOverrides` 四态 | 出盘点 + 可关闭草稿；`--apply --yes` 在你同意下写入 `off` |
-| **千问办公** | ✅ `~/.qwenwork/skills`（官方明文） | ❌ 无 | ❌ **无禁用开关**（实测） | 仅盘点 + 手动删目录指引，**绝不**给关闭动作 |
-| **百度搭子** | ✅ 本地沙箱（路径待验→`--root`） | ❌ 无 | ✅ 禁用开关 + 专家套件禁用 | 出盘点 + 关闭指引；独占「专家套件」治理维度 |
+| **WorkBuddy** | ✅ `~/.workbuddy/skills` | ✅ `usage-log.json` | ✅ `skillOverrides` 四态（文件系统） | 出盘点 + 可关闭草稿；`--apply --yes` 在你同意下写入 `off` |
+| **千问办公** | ✅ `~/.qwenworkcn/skills`（实测真机路径） | ✅ `skill-usage.json`（`usageCount`/`lastUsedAt`） | 经连接器/UI（工具不代执行） | 出盘点 + 调用记录；`--overrides` 改出「客户端确认」清单 |
+| **百度搭子** | ✅ 多根自动探测（全局/会话/插件/禁用） | ❌ 无（平台限制，非 bug） | 经 UI/连接器（工具不代执行） | 出盘点 + 关闭指引；无遥测则全库落「需人工确认」 |
 | **天禧AI** | ❓ 云端沙箱（见 fit 评估） | ❓ 未知 | ❓ 未知 | 暂不作为运行时适配目标，详见 `references/tianxi-fit-assessment.md` |
 
-> 原则：**未显式调用 ≠ 没用**。千问这类无关闭开关的平台，本工具只做「体检」，把「动刀」留给你手动处理，避免给出你根本执行不了的「关闭建议」。
+> 原则：**未显式调用 ≠ 没用**。千问/百度这类关闭走连接器或 UI 的平台，本工具只做「体检」与候选清单，把「动刀」留给客户端确认，避免给出工具根本执行不了的「关闭动作」。
 
 ## 🔒 P0 护栏（硬性，不可违背）
 
@@ -60,7 +60,7 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
    `/skills` 菜单（按 Esc 才落盘）而非直接改配置文件。
    · **在你同意下关闭（仅可关平台）**：在 WorkBuddy 等 `can_close` 平台，可加 `--apply --yes` 让工具**代你**
    把候选写入 `skillOverrides` 的 `off` 态；该动作**先自动备份 `settings.json`、且缺 `--yes` 只做 dry-run 预览**，
-   绝不静默执行。千问等不可关平台会直接拒绝 `--apply`。
+   绝不静默执行。千问/百度等走连接器/UI 的平台，`--apply` 不会执行任何关闭，仅给客户端确认指引。
 2. **受保护技能永远不进"可关闭"候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
    `--protect` 追加的。报告里它们单列在「受保护」一档。
