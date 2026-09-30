@@ -252,12 +252,14 @@ def load_usage(path, adapter=None) -> tuple:
         return {}, False
 
 
-def scan(roots: list) -> list:
+def scan(roots: list, market_resolver=None) -> list:
     """扫描技能根目录（支持多根合并），返回技能行列表。
 
     roots: list of dict {"path": Path, "label": str, "disabled": bool}
       - label 非空且多根时，dir 字段加区域前缀便于区分同名技能。
       - disabled=True 表示该区域是「已禁用」库（如 .skills_disabled）。
+    market_resolver: 可选 callable(skill_dir: Path) -> bool，覆盖默认的「_meta.json 存在即市场」判定
+        （千问用它改读中心化 lock 文件的 source 字段，见 _qwen_extra）。
 
     P1-4 已修复：rglob 会连带捞出 <skill>/references/SKILL.md 之类的嵌套文件，
     被误计为独立技能。现采用「最浅 SKILL.md 优先」规则——若某 SKILL.md 的祖先目录
@@ -311,7 +313,8 @@ def scan(roots: list) -> list:
                 "leaf": leaf,
                 "name": name,
                 "desc": fm.get("description") or "",
-                "from_market": (sd / "_meta.json").exists(),
+                "from_market": (market_resolver(sd) if market_resolver is not None
+                                else (sd / "_meta.json").exists()),
                 "lines": len(text.splitlines()),
                 "files": len(files),
                 "kb": round(total / 1024, 1),
@@ -427,6 +430,43 @@ def detect_baidu_roots(root_arg) -> list:
     if gp.is_dir() and any(gp.rglob("SKILL.md")):
         roots.append({"path": gp, "label": "全局插件禁用", "disabled": True})
     return roots or None
+
+
+def _qwen_extra(qwen_root: pathlib.Path):
+    """千问专用：返回 (market_dirs: set|None, ref_roots: list)。
+
+    market_dirs：来自 `skills/.skills_store_lock.json` 中 source!=local 的 installDir 集合，
+        作为「来自市场/社区」的权威判定（P2-5：不再只靠逐目录的 _meta.json，后者千问仅 2/34 命中且无来源字段）。
+        锁文件缺失时返回 None（交由 scan 走默认 _meta.json 判定）。
+    ref_roots：可能隐式引用技能的配置——路由状态(.dws-skill-state.json 的 skillNames/routingFallbackSkill)、
+        锁文件、各 skill 的 config.json、插件的 plugin.json（P2-7 反向依赖扫描根）。
+    """
+    skills = qwen_root / "skills"
+    market_dirs = None
+    lock = skills / ".skills_store_lock.json"
+    if lock.exists():
+        market_dirs = set()
+        try:
+            data = json.loads(lock.read_text(encoding="utf-8"))
+            for v in (data.get("skills") or {}).values():
+                if not isinstance(v, dict):
+                    continue
+                src = str(v.get("source", "")).lower()
+                if src and src != "local":
+                    idir = v.get("installDir")
+                    if idir:
+                        market_dirs.add(pathlib.Path(idir))
+        except Exception:
+            market_dirs = set()
+    ref = []
+    for f in ("skills/.dws-skill-state.json", "skills/.skills_store_lock.json", "mcp-adaptor.config"):
+        p = qwen_root / f
+        if p.exists():
+            ref.append(str(p))
+    for pat in ("skills/*/config.json", "plugins/*/.qoder-plugin/plugin.json"):
+        for p in sorted(qwen_root.glob(pat)):
+            ref.append(str(p))
+    return market_dirs, ref
 
 
 def attach_usage(rows: list, usage: dict) -> None:
@@ -770,15 +810,25 @@ def main() -> int:
         global SAFETY_KEYWORDS
         SAFETY_KEYWORDS = ()  # 关闭启发式
 
-    rows = scan(roots)
+    # 千问：用中心化 lock 文件的 source 字段判定「来自市场」（P2-5），并取反向依赖扫描根（P2-7）
+    market_resolver = None
+    qwen_ref = []
+    if agent_key == "qwen" and roots:
+        market_dirs, qwen_ref = _qwen_extra(roots[0]["path"].parent)
+        if market_dirs is not None:
+            market_resolver = lambda sd: sd in market_dirs or (sd / "_meta.json").exists()
 
-    # 反向依赖扫描（P0 增强）：锁定被自动化 / Hook / 专家·连接器引用的技能
+    rows = scan(roots, market_resolver)
+
+    # 反向依赖扫描（P0 增强）：锁定被自动化 / Hook / 专家·连接器 / 路由层引用的技能
     if not args.no_ref_scan:
-        ref_roots = [str(p) for p in DEFAULT_REF_ROOTS if pathlib.Path(p).exists()]
+        ref_roots = [str(p) for p in DEFAULT_REF_ROOTS if pathlib.Path(p).exists()]  # WorkBuddy 默认根
+        if agent_key == "qwen":
+            ref_roots += qwen_ref          # 千问路由状态 / 插件 config 等
         if args.refs:
             ref_roots += [x for x in args.refs.split(",") if x.strip()]
         if not ref_roots and agent_key != "workbuddy":
-            print(f"[note] {profile['label']} 未找到可扫描的反向依赖根（自动化/Hook），"
+            print(f"[note] {profile['label']} 未找到可扫描的反向依赖根（自动化/Hook/路由配置），"
                   f"反向依赖锁定暂不可用；如有关键词触发器引用，请人工确认。",
                   file=sys.stderr)
         if ref_roots:

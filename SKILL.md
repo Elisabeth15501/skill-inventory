@@ -75,6 +75,8 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
    **凡被引用的技能一律锁定为「受保护」**——无论它有没有用量日志。这堵住了
    「用户只设了关键词/触发器、或借专家·连接器组件间接调用，日志里完全无痕」导致的误杀。
    若你的引用定义在别处，用 `--refs /path/to/defs` 指明；想完全关掉用 `--no-ref-scan`。
+   · 千问办公额外默认扫描 `skills/.dws-skill-state.json`（路由层 `skillNames` / `routingFallbackSkill`）、
+     各 skill 的 `config.json` 与插件的 `plugin.json`，覆盖「被路由/插件隐式引用」的场景（P2-7）。
 
 ## 输出怎么读
 
