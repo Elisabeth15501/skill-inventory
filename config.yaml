@@ -1,8 +1,14 @@
 # 天禧 AI 技能广场提交清单（config.yaml）
 #
-# ⚠️ 提交前必读：天禧官方未公开完整 config.yaml schema（公开检索仅确认 network.outbound 必须为 false）。
-# 以下字段依据「feature-dev-skill-inventory-2026-09-26.md」行动项 + 已知红线填写，
-# 正式 push 前请向联想开放平台工单核实各字段的必填/可选与取值格式。
+# ✅ 2026-10-01 官方渠道核实结论（上传指南 doc id=2056218595550924802，更新于 2026-06-05）：
+#   1. 官方上传路径是「ZIP ≤10MB + SKILL.md 必须在 ZIP 根目录」，平台自动读取包内信息回填；
+#      CLI 上传走 lenovoskill（init/package/push），CLI 另读项目级 .skill-config.json（私有适配层，勿 commit）。
+#   2. 官方文档 **未出现 config.yaml，也没有 network/permissions schema** ——
+#      本文件的字段是 2026-09-26 按「假设 schema」写的，并非官方要求。
+#   3. 社区实测（skill-publish-sync 经验）：联想 CLI 从 SKILL.md frontmatter 读 slug + displayName
+#      （SKILL.md 已补这两个字段），与 .skill-config.json 并存、应保持一致。
+# 结论：本 config.yaml **不是上传必需文件**，仅作平台适配信息留档；打 ZIP 上传时可不包含，
+#       若后续官方公开 schema 或 CLI 报缺字段，再按报错补齐。
 name: skill-inventory
 version: 0.1.0
 author: Elisabeth15501

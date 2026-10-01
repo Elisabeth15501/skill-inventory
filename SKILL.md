@@ -1,5 +1,7 @@
 ---
 name: skill-inventory
+slug: skill-inventory
+displayName: 技能盘点与效能体检
 description: 面向办公型 Agent（如 WorkBuddy）的技能库盘点与效能体检。扫描任意技能目录，统计数量/体积/上下文 token 占用，识别重复与近似技能，并按「有使用记录/受保护/可关闭候选/需人工确认」四档给出保守的瘦身建议。仅输出建议，绝不自动关闭任何技能。
 author: Elisabeth15501
 version: 0.1.0
