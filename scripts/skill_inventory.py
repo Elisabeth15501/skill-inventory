@@ -483,19 +483,44 @@ def attach_usage(rows: list, usage: dict) -> None:
         r["uses"] = best[1].get("uses", len(best[1].get("recentDates", []))) if best else 0
 
 
+def _ref_kind(p: pathlib.Path) -> str:
+    """按路径归类引用来源类型（影响预览用）：自动化 / Hook / 路由状态 / 插件清单等。"""
+    parts = [x.lower() for x in p.parts]
+    name = p.name.lower()
+    if "automations" in parts:
+        return "自动化"
+    if "hooks" in parts:
+        return "Hook"
+    if name == ".dws-skill-state.json":
+        return "路由状态"
+    if name == ".skills_store_lock.json":
+        return "商店锁"
+    if ".qoder-plugin" in parts or name == "plugin.json":
+        return "插件清单"
+    if "mcp-adaptor" in name:
+        return "MCP 配置"
+    if name == "config.json":
+        return "技能配置"
+    return "其他配置"
+
+
 def scan_references(rows: list, ref_roots: list) -> dict:
     """反向依赖扫描（P0 增强）：在自动化 / Hook / 专家·连接器 / 子 agent 定义里找对本技能的引用。
 
     用户可能从不在对话里明说要调某 skill，而是被「关键词触发器 / 自动化任务 / Hook /
     专家·连接器组件」间接调用——这些在用量日志里**完全无痕**。直接扫描这些定义文件，
     凡被引用即**锁定**，绝不作为「可关闭」候选。思路借鉴 Hermes skill-drift-check 的 pre-flight 校验。
+
+    返回（P0 影响预览结构化）：
+        {skill_dir: [{"path": 完整路径, "kind": 来源类型, "terms": [命中的技能名, ...]}]}
+    其中条目按 (kind, path) 排序；结构化目的：报告可输出「关闭 X 将断掉哪些链路」的因果映射。
     """
-    search = {}
+    search = {}   # 归一化术语 -> (skill_dir, 原始术语)
     for r in rows:
         for key in (r["leaf"], r["name"]):
             nk = norm(key)
             if nk:
-                search[nk] = r
+                search[nk] = (r["dir"], key)
     files = []
     for root in ref_roots:
         p = pathlib.Path(root)
@@ -509,19 +534,32 @@ def scan_references(rows: list, ref_roots: list) -> dict:
                     files.append(f)
     # 词边界精确匹配：整词/连字符 token 才算引用（避免 "git" 误锁 "github" 等子串误判）
     patterns = {
-        term: re.compile(r"(?<![\w@/-])" + re.escape(term) + r"(?![\w@/-])")
-        for term in search
+        nk: re.compile(r"(?<![\w@/-])" + re.escape(nk) + r"(?![\w@/-])")
+        for nk in search
     }
-    referenced = {}
+    referenced = {}   # skill_dir -> {path_str: {"path","kind","terms":set}}
     for f in files:
         try:
             text = f.read_text(encoding="utf-8", errors="replace").lower()
         except Exception:
             continue
-        for term, pat in patterns.items():
-            if pat.search(text):
-                referenced.setdefault(search[term]["dir"], []).append(f.name)
-    return referenced
+        hit_dirs = {}
+        for nk, (d, orig) in search.items():
+            if patterns[nk].search(text):
+                hit_dirs.setdefault(d, set()).add(orig)
+        if not hit_dirs:
+            continue
+        for d, terms in hit_dirs.items():
+            files_map = referenced.setdefault(d, {})
+            entry = files_map.setdefault(str(f), {"path": str(f), "kind": _ref_kind(f), "terms": set()})
+            entry["terms"] |= terms
+    out = {}
+    for d, fm in referenced.items():
+        entries = sorted(fm.values(), key=lambda e: (e["kind"], e["path"]))
+        for e in entries:
+            e["terms"] = sorted(e["terms"])
+        out[d] = entries
+    return out
 
 
 def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
@@ -558,6 +596,32 @@ def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
     return buckets
 
 
+def print_impact(rows: list, query: str) -> None:
+    """--impact <名称>：单技能影响深查（全量列出、不截断），供关闭前逐条审阅（调研护栏 #4/#8）。"""
+    q = query.lower()
+    matched = [r for r in rows if q in r["dir"].lower() or q in r["name"].lower()]
+    if not matched:
+        print(f"[impact] 未找到名称或目录含「{query}」的技能。", file=sys.stderr)
+        return
+    any_locked = False
+    for r in sorted(matched, key=lambda x: x["dir"]):
+        refs = r.get("referenced_by") or []
+        if refs:
+            any_locked = True
+            print(f"\n== {r['dir']}（{r['name']}）— 🔒 被引用锁定，关闭将断掉 {len(refs)} 处引用：")
+            for e in refs:
+                print(f"  · [{e['kind']}] {e['path']}")
+                print(f"    命中: {', '.join(e['terms'])}")
+        else:
+            why = "受保护（非引用原因）" if r.get("protected") else "未发现引用"
+            print(f"\n== {r['dir']}（{r['name']}）— {why} ==")
+            if refs is not None and not refs and not r.get("protected"):
+                print("  （本工具能扫描的配置根里没有它；但 T2 自动挂载与描述性关键词引用扫不到，")
+                print("   关闭前仍请人工确认。）")
+    if not any_locked:
+        print("\n[impact] 以上技能均未被自动化/Hook/路由/插件配置引用（就本工具可扫描的根而言）。", file=sys.stderr)
+
+
 def report(rows: list, telemetry: bool, profile: dict) -> None:
     total_chars = sum(len(r["name"]) + len(r["desc"]) for r in rows)
     total_tokens = sum(_est_tokens(r["name"] + r["desc"]) for r in rows)
@@ -568,6 +632,12 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
         print("⚠️  [遥测缺口] 本目录/平台无可用用量日志，无法确认冷技能。")
         print("    以下结论只基于「最后修改时间」，不可作为关闭依据——请人工确认每个技能是否")
         print("    仍被「关键词触发器 / 自动化 / 专家·连接器组件」间接使用。\n")
+    elif telemetry:
+        # 调研 §2/§3：遥测只覆盖 T1 显式调用；「call_depth 覆盖 T5」本身属推断（§8 已标注）。
+        # 有日志 ≠ 安全，这句必须在有遥测的平台上也常显。
+        print("ℹ  遥测口径：用量日志只覆盖「显式调用」（T1）。自动挂载 / 定时任务 / Hook / 专家内部")
+        print("   调用（T2–T6）不计入——「有使用记录」≠「只被显式用过」，「无使用记录」也不等于")
+        print("   「没在用」（反向依赖扫描只兜住可发现的配置根）。\n")
 
     if profile.get("close_kind") == "connector":
         print(f"🔒 注意：{profile['label']} 的关闭/禁用在客户端 UI 或对应连接器操作"
@@ -607,14 +677,28 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
         print()
         print(f"🔒 受保护（永不自动建议关闭，须人工明确介入）：{len(b['protected'])} 个")
         for r in sorted(b["protected"], key=lambda x: x["dir"]):
-            if r.get("referenced_by"):
-                shown = ", ".join(sorted(set(r["referenced_by"]))[:3])
-                reason = f"被引用锁定（{shown}）"
+            refs = r.get("referenced_by") or []
+            if refs:
+                kinds = "、".join(sorted({e["kind"] for e in refs}))
+                reason = f"被引用锁定：{len(refs)} 处（{kinds}）"
             elif r["safety_hit"]:
                 reason = "安全/审计类"
             else:
                 reason = "显式标记 protected / 自保护"
             print(f"  {_pad(r['dir'],40)}（{reason}）")
+
+    # 影响预览（调研护栏 #4，§7 唯一 ⚠️ 项）：关闭某技能将断掉哪些链路——结构化逐条映射
+    locked = [r for r in rows if r.get("referenced_by")]
+    if locked:
+        print()
+        print(f"🛰  影响预览（被引用锁定技能的依赖链路，{len(locked)} 个技能）：")
+        for r in sorted(locked, key=lambda x: x["dir"]):
+            refs = r["referenced_by"]
+            print(f"  ▸ {_pad(r['dir'], 36)} 关闭将断掉 {len(refs)} 处引用：")
+            for e in refs:
+                print(f"      · [{e['kind']}] {e['path']}")
+                print(f"        命中: {', '.join(e['terms'])}")
+        print("  （单技能深查：--impact <名称>；本扫描只覆盖可发现的配置根，T2 自动挂载不在此列）")
 
     # P0-1：疑似重复/冗余技能
     #   (a) 同一 leaf 在 ≥2 个「非禁用」区域都激活 → 真·多份加载（重点）；
@@ -790,6 +874,8 @@ def main() -> int:
     ap.add_argument("--no-safety-heuristic", action="store_true",
                     help="关闭「安全/审计类」关键词启发式保护（默认开启）")
     ap.add_argument("--refs", default="", help="额外反向依赖扫描根（逗号分隔，文件或目录）")
+    ap.add_argument("--impact", metavar="名称", default=None,
+                    help="只查指定技能的影响预览（关闭将断掉哪些引用链路，全量不截断）")
     ap.add_argument("--no-ref-scan", action="store_true",
                     help="关闭反向依赖扫描（默认开启：扫自动化/Hook/设置里的技能引用并锁定）")
     args = ap.parse_args()
@@ -839,6 +925,10 @@ def main() -> int:
                     r["referenced_by"] = rb
                     r["locked"] = True
 
+    if args.impact:
+        print_impact(rows, args.impact)
+        return 0
+
     usage, telemetry = load_usage(usage_path, profile.get("usage_adapter"))
     attach_usage(rows, usage)
 
@@ -850,6 +940,7 @@ def main() -> int:
             "rows": rows,
             "buckets": {k: [r["dir"] for r in v] for k, v in b.items() if isinstance(v, list)},
             "telemetry_gap": b["telemetry_gap"],
+            "telemetry_scope": ("none" if b["telemetry_gap"] else "t1-only"),
             "cannot_close": b["cannot_close"],
         }, ensure_ascii=False, indent=2))
         return 0

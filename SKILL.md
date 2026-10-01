@@ -77,6 +77,13 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
    若你的引用定义在别处，用 `--refs /path/to/defs` 指明；想完全关掉用 `--no-ref-scan`。
    · 千问办公额外默认扫描 `skills/.dws-skill-state.json`（路由层 `skillNames` / `routingFallbackSkill`）、
      各 skill 的 `config.json` 与插件的 `plugin.json`，覆盖「被路由/插件隐式引用」的场景（P2-7）。
+6. **影响预览（P0-2）。** 报告对每个被引用锁定的技能输出结构化「影响预览」：
+   `关闭将断掉 N 处引用`，逐条列出 `[来源类型] 完整路径` + `命中的技能名`
+   （来源类型按路径归类：自动化 / Hook / 路由状态 / 商店锁 / 插件清单 / MCP 配置 / 技能配置）。
+   单技能深查用 `--impact <名称>`（全量不截断，含「未发现引用」的技能，供关闭前逐条审阅）。
+   JSON 输出的 `referenced_by` 为 `[{path, kind, terms}]` 结构；`telemetry_scope` 字段
+   标明遥测口径（`t1-only` / `none`）——报告在有遥测的平台上也会常显
+   「日志只覆盖显式调用（T1），T2–T6 盲区」的口径提醒。
 
 ## 输出怎么读
 
