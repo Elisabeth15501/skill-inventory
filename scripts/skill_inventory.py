@@ -105,6 +105,16 @@ PLATFORMS = {
         "close_kind": "connector",
         "multi_root": True,
     },
+    # 通用档（generic）：未识别宿主 / 自定义目录。参赛（天禧沙箱等）与任意办公 Agent 的兜底：
+    # 只盘点 + 建议，永不程序化关闭，无遥测就诚实降级——「宁少报，不误杀」在陌生环境里是安全网。
+    "generic": {
+        "label": "通用（自定义目录）",
+        "skills_root": None,          # 必须由 --root 指定
+        "usage_log": None,            # 默认无遥测；可用 --usage-log 显式提供
+        "usage_adapter": None,
+        "can_close": False,           # 未知宿主 → 绝不产出「可关闭」，全落「需人工确认」
+        "close_kind": "none",
+    },
 }
 
 
@@ -643,6 +653,11 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
         print(f"🔒 注意：{profile['label']} 的关闭/禁用在客户端 UI 或对应连接器操作"
               f"（技能列表「启用开关」/ 专家套件禁用），本工具不代执行任何关闭动作。\n")
 
+    if profile.get("close_kind") == "none":
+        print(f"ℹ  {profile['label']}：未识别宿主的通用模式——仅输出盘点与建议，无程序化关闭通道。")
+        print("   关闭请使用宿主自带的技能启用/禁用开关，并逐条人工确认；「需人工确认」档的存在")
+        print("   正是因为自动挂载 / 定时任务 / Hook / 专家组件的用量在日志里不可见。\n")
+
     print(f"平台            {profile['label']}")
     print(f"技能总数        {len(rows)}    （市场安装 {market} / 自建或自改 {len(rows) - market}）")
     print(f"有使用记录      {len(b['keep'])}")
@@ -722,6 +737,12 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
 
 def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool, yes: bool) -> None:
     b = classify(rows, telemetry, profile["can_close"])
+
+    # 通用档（generic）：未知宿主没有关闭通道，--overrides 不适用——显式拦截而非落进 filesystem 分支
+    if profile.get("close_kind") == "none":
+        print("// 通用模式（未识别宿主）没有程序化关闭通道，--overrides 不适用。")
+        print("//    请直接看报告的「可关闭候选 / 需人工确认」，再到宿主自带开关里手动处理。")
+        return
 
     # 连接器平台（千问/百度）：关闭在客户端 UI，不产出 WB skillOverrides 骨架
     if profile.get("close_kind") == "connector":
@@ -816,10 +837,10 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
         elif (HOME / ".qwenworkcn" / "skills").exists():
             agent = "qwen"
         else:
-            agent = "workbuddy"
+            agent = "generic"   # 未知宿主（天禧沙箱等）：回落通用档，不再硬套 workbuddy 路径
     profile = PLATFORMS.get(agent)
     if profile is None:
-        print(f"未知平台：{agent}（可选：workbuddy / qwen / baidu / auto）", file=sys.stderr)
+        print(f"未知平台：{agent}（可选：workbuddy / qwen / baidu / generic / auto）", file=sys.stderr)
         return None, None, None, None
 
     # 百度：多根自动探测（或 --root 显式指定）
@@ -838,8 +859,14 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
     else:
         sr = profile["skills_root"]
         if not sr:
-            print(f"⚠️ {profile['label']} 的本地技能目录尚未在本机验证，请用 --root 指定。",
-                  file=sys.stderr)
+            if agent == "generic":
+                print("通用模式：未识别出已知办公 Agent 的技能目录。", file=sys.stderr)
+                print("请用 --root <技能目录> 指向要盘点的目录（约定：目录内每个子目录 = 一个技能，"
+                      "含 SKILL.md 即视为技能）。", file=sys.stderr)
+                print("可选：--usage-log <路径> 提供用量日志；--refs <路径> 提供反向依赖扫描根。", file=sys.stderr)
+            else:
+                print(f"⚠️ {profile['label']} 的本地技能目录尚未在本机验证，请用 --root 指定。",
+                      file=sys.stderr)
             return None, None, None, None
         roots = [{"path": p, "label": "", "disabled": False} for p in sr]
     missing = [r for r in roots if not r["path"].is_dir()]
@@ -858,8 +885,8 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
 def main() -> int:
     ap = argparse.ArgumentParser(description="面向办公型 Agent 的技能库盘点与效能体检")
     ap.add_argument("--agent", default="auto",
-                    choices=["workbuddy", "qwen", "baidu", "auto"],
-                    help="目标平台档位（决定能否程序化关闭）。默认 auto 探测")
+                    choices=["workbuddy", "qwen", "baidu", "generic", "auto"],
+                    help="目标平台档位（决定能否程序化关闭）。auto 探测已知平台，失败回落 generic 通用档")
     ap.add_argument("--root", default="", help="技能目录（覆盖平台默认；默认 ~/.workbuddy/skills 等）")
     ap.add_argument("--usage-log", default="", help="用量日志路径（覆盖平台默认；无则按无遥测降级）")
     ap.add_argument("--unused", action="store_true", help="只列出无使用记录的技能")
