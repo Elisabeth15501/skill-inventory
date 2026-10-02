@@ -7,7 +7,7 @@ description: >-
   Office-agent skill inventory & health check. Scans any skills directory, measures size and
   context-token footprint, detects duplicates, and classifies skills into used / protected /
   closeable / manual-review buckets. Reverse-dependency scanning locks every skill referenced by
-  automations, hooks or plugins. Read-only by default: the ONLY write path is
+  automations, hooks or plugins. Read-only by default: its single, consent-gated write path is
   `--overrides --apply --yes` on platforms with a programmatic close channel (e.g. WorkBuddy),
   which automatically backs up settings.json first and merges "off" entries into skillOverrides
   after your explicit confirmation; without --yes it is a dry-run preview. No network access,
@@ -15,7 +15,7 @@ description: >-
   English-keyed.
   办公型 Agent 通用的技能库盘点与效能体检。扫描任意技能目录，统计数量/体积/上下文 token 占用，
   识别重复与近似技能，并按「有使用记录/受保护/可关闭候选/需人工确认」四档给出保守建议；反向依赖
-  扫描会锁定被自动化/Hook/插件引用的技能。默认只读：唯一写路径是 `--overrides --apply --yes`
+  扫描会锁定被自动化/Hook/插件引用的技能。默认只读：写路径仅限 `--overrides --apply --yes`
   （仅 WorkBuddy 等可关平台），先自动备份 settings.json 再合并 off 项，缺 --yes 只做预览；
   无网络、无子进程。报告默认中文（--lang en 切英文）；--json 输出恒为英文键。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
@@ -67,8 +67,17 @@ handle unrelated tasks.
 | 反向依赖根 Ref roots | 可选 Optional | `--refs <路径>`：自动化 / Hook / 路由配置等可能隐式引用技能的文件或目录 |
 | 受保护清单 Protect list | 可选 Optional | `--protect a,b,c` 或 `--protect-file`；另内置安全/审计类启发式 |
 
-纯本地静态分析，**零网络依赖、零子进程**（沙箱红线天然合规）。
-Pure local static analysis — **no network, no subprocesses** (sandbox red-line compliant).
+**权限边界 / Permission scope**（权限声明 / permission declaration）：
+
+- **读取 Read**：技能目录、用量日志、自动化/Hook/路由/插件配置 / skills directories, usage logs,
+  automation/hook/routing/plugin configs
+- **写入 Write**：仅 `~/.workbuddy/settings.json` 的 `skillOverrides` 键，且仅当你显式传
+  `--apply --yes`（写前自动备份）/ only the `skillOverrides` key of settings.json, only via your
+  explicit `--apply --yes` (auto-backup first)
+- **网络 Network**：无 / none　**子进程 Subprocess**：无 / none
+
+纯本地静态分析，零网络依赖、零子进程（沙箱红线天然合规）。
+Pure local static analysis — no network, no subprocesses (sandbox red-line compliant).
 
 ## 3. 输出结果 / Outputs
 
@@ -106,7 +115,7 @@ Pure local static analysis — **no network, no subprocesses** (sandbox red-line
 
 ## 6. 用户确认点 / User confirmation points
 
-- **本工具不会自行关闭任何技能。** 唯一的写路径是你在 WorkBuddy 等可关平台上**显式**传入
+- **本工具不会自行关闭任何技能。** 写路径仅限一处，且需你显式授权——在 WorkBuddy 等可关平台上传入
   `--overrides --apply --yes`：此时先自动备份 `settings.json`，再把候选合并进 `skillOverrides`；
   缺 `--yes` 只做 dry-run 预览；不可关平台直接拒绝 `--apply`。
   This tool never closes a skill on its own. The only write path is your explicit
@@ -116,11 +125,11 @@ Pure local static analysis — **no network, no subprocesses** (sandbox red-line
 
 ## 7. 风险边界 / Risk boundaries
 
-- **默认只读，唯一受控写路径 / Read-only by default, one controlled write path**：本工具默认不写任何
-  宿主配置、不调用任何禁用/删除接口；它**具备**唯一的受控写能力——`--overrides --apply --yes`
+- **默认只读，写路径单一且受控 / Read-only by default, single consent-gated write path**：本工具默认不写任何
+  宿主配置、不调用任何禁用/删除接口；它**具备**一项受控写能力——`--overrides --apply --yes`
   （先备份、缺 `--yes` 即 dry-run、不可关平台拒绝），此能力在报告与 `--overrides` 输出中都会显式标注。
-  Read-only by default: no config writes, no disable/delete calls. It does have exactly one
-  controlled write capability — `--overrides --apply --yes` (auto-backup, dry-run without --yes,
+  Read-only by default: no config writes, no disable/delete calls. It does have a single
+  consent-gated write capability — `--overrides --apply --yes` (auto-backup, dry-run without --yes,
   rejected on non-closable platforms) — which every report and --overrides output states explicitly.
 - **未显式调用 ≠ 没用**：关键词触发器、专家/连接器组件的间接调用在用量日志里完全无痕——这是结构性盲区，靠反向依赖扫描 + 用户确认双层兜底。
 - **遥测缺口不判死**：无用量日志或日志读取失败时，全库落「需人工确认」，不输出可关闭项——宁可少报，不可误杀。

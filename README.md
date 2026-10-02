@@ -3,7 +3,7 @@
 为办公型 Agent（WorkBuddy、千问办公、百度搭子、天禧AI 等）做「技能库盘点 + 效能体检」：
 扫描任意技能目录，统计数量 / 体积 / 上下文 token 占用，识别重复与近似技能，
 并给出**保守**的瘦身建议。**默认只读**：盘点、分类、建议全程不写任何文件；
-唯一写路径是 `--overrides --apply --yes`（仅 WorkBuddy 等可关平台，先自动备份）——判断权始终在人。
+写路径仅限 `--overrides --apply --yes`（受显式确认闸门控制，仅 WorkBuddy 等可关平台，先自动备份）——判断权始终在人。
 
 > 装得多不等于能力强。技能清单（name + description）每一轮对话都进模型上下文，
 > 装 54 个技能约等于每轮白烧 5,000+ tokens。本工具给「哪些该关」提供事实依据。
@@ -47,10 +47,10 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
 
 ## 🔒 行为契约（先读这段再信任它）
 
-**默认只读，唯一受控写路径 / Read-only by default, one controlled write path：**
+**默认只读，写路径单一且受控 / Read-only by default, single consent-gated write path：**
 
 1. **默认不写任何文件。** 盘点、分类、建议全程只读；不调用任何禁用/删除接口。
-2. **唯一写路径（需你显式授权）。** 在 WorkBuddy 等可关平台上，`--overrides --apply --yes`
+2. **写路径仅限一处（需你显式授权）。** 在 WorkBuddy 等可关平台上，`--overrides --apply --yes`
    会**先自动备份 `settings.json`**，再把候选合并进 `skillOverrides` 的 `off` 态；
    缺 `--yes` 只做 dry-run 预览（不读写任何文件）；千问等不可关平台直接拒绝 `--apply`。
    每份报告和 `--overrides` 输出都会显式标注这条写路径——本工具**不会**静默或自行关闭任何技能。
@@ -102,7 +102,7 @@ tokens — 54 installed skills ≈ 5,000+ tokens burned per turn; this tool prov
 ## Behaviour contract
 
 - **Read-only by default.** Inventory, classification and advice write nothing anywhere.
-- **Exactly one write path, gated by you**: `--overrides --apply --yes` on platforms with a
+- **A single consent-gated write path**: `--overrides --apply --yes` on platforms with a
   programmatic close channel (WorkBuddy family). It **backs up `settings.json` automatically
   first**, then merges "off" entries into `skillOverrides`. Without `--yes` it is a dry-run
   preview; non-closable platforms (QwenWork etc.) reject `--apply` outright. The tool never

@@ -15,7 +15,7 @@
 ----------------------------
 默认只读 / Read-only by default: the tool inventories, classifies and prints advice. It writes
 nothing unless you explicitly pass `--overrides --apply --yes` (WorkBuddy-family platforms only).
-唯一写路径 / Only write path: `--apply --yes` merges "off" entries into ~/.workbuddy/settings.json
+写路径仅限一处 / Single write path: `--apply --yes` merges "off" entries into ~/.workbuddy/settings.json
 `skillOverrides`, after automatically backing up the file; without `--yes` it is a dry-run preview.
 Platforms without a programmatic close channel (qwen / baidu / generic) reject --apply outright.
     python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
@@ -43,7 +43,7 @@ Platforms without a programmatic close channel (qwen / baidu / generic) reject -
 ------------------------------
   1. 受保护技能（见 PROTECTED_LEAVES / frontmatter `protected: true` / 安全关键词启发式）
      永不进入「可关闭」候选，单独列出「需人工介入才能关闭」。
-  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。唯一写路径是
+  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。写路径仅限一处，即
      `--overrides --apply --yes`（仅 WorkBuddy 等可关平台）：先自动备份 settings.json，
      再把候选合并进 skillOverrides；缺 `--yes` 时只做 dry-run 预览，不读写任何文件。
      / Read-only by default: the only write path is `--overrides --apply --yes` (can_close
