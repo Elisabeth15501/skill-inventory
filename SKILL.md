@@ -2,7 +2,9 @@
 name: skill-inventory
 slug: skill-inventory
 displayName: 技能盘点与效能体检
+summary: 扫描技能目录，按「在用/受保护/可关闭/需人工确认」四档输出瘦身建议，防误关护栏齐全
 description: 办公型 Agent 通用的技能库盘点与效能体检。扫描任意技能目录，统计数量/体积/上下文 token 占用，识别重复与近似技能，并按「有使用记录/受保护/可关闭候选/需人工确认」四档给出保守的瘦身建议。仅输出建议，绝不自动关闭任何技能；无用量日志时自动降级、绝不误判。
+tags: [技能管理, 效率工具, 上下文优化, 盘点, 运维]
 author: Elisabeth15501
 version: 1.0.0
 ---
