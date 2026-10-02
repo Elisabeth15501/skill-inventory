@@ -4,7 +4,7 @@ slug: skill-inventory
 displayName: 技能盘点与效能体检
 description: 办公型 Agent 通用的技能库盘点与效能体检。扫描任意技能目录，统计数量/体积/上下文 token 占用，识别重复与近似技能，并按「有使用记录/受保护/可关闭候选/需人工确认」四档给出保守的瘦身建议。仅输出建议，绝不自动关闭任何技能；无用量日志时自动降级、绝不误判。
 author: Elisabeth15501
-version: 0.2.0
+version: 1.0.0
 ---
 
 # skill-inventory · 办公型 Agent 通用的技能库盘点与效能体检

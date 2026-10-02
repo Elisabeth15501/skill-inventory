@@ -10,7 +10,7 @@
 # 结论：本 config.yaml **不是上传必需文件**，仅作平台适配信息留档；打 ZIP 上传时可不包含，
 #       若后续官方公开 schema 或 CLI 报缺字段，再按报错补齐。
 name: skill-inventory
-version: 0.1.0
+version: 1.0.0
 author: Elisabeth15501
 description: >-
   面向办公型 Agent（如 WorkBuddy）的技能库盘点与效能体检。扫描技能目录，统计数量 / 体积 /
