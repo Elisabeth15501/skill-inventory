@@ -1,3 +1,6 @@
 # ClawHub 强制 MIT-0 且不支持按技能覆盖许可证，
 # 仓库自带的 MIT LICENSE 与平台条款冲突 → 发布包排除（仅仓库留档）。
 LICENSE
+
+# 天禧适配留档（中文内部工作流注释），对 ClawHub 用户无价值且触发语言策略 → 排除
+config.yaml

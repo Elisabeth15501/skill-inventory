@@ -2,7 +2,8 @@
 
 为办公型 Agent（WorkBuddy、千问办公、百度搭子、天禧AI 等）做「技能库盘点 + 效能体检」：
 扫描任意技能目录，统计数量 / 体积 / 上下文 token 占用，识别重复与近似技能，
-并给出**保守**的瘦身建议。本工具只出报告、不关技能——判断权始终在人。
+并给出**保守**的瘦身建议。**默认只读**：盘点、分类、建议全程不写任何文件；
+唯一写路径是 `--overrides --apply --yes`（仅 WorkBuddy 等可关平台，先自动备份）——判断权始终在人。
 
 > 装得多不等于能力强。技能清单（name + description）每一轮对话都进模型上下文，
 > 装 54 个技能约等于每轮白烧 5,000+ tokens。本工具给「哪些该关」提供事实依据。
@@ -33,7 +34,7 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
 
 ## 平台档位与能力感知关闭
 
-不同 Agent 的「关闭」能力不同，本工具按 `can_close` 分叉——**不可关平台绝不产出任何关闭动作**，只给报告 + 手动移除指引：
+不同 Agent 的「关闭」能力不同，本工具按 `can_close` 分叉——**不可关平台不产出任何关闭动作**，只给报告 + 手动移除指引：
 
 | 平台 | 可扫描 | 有用量账本 | 可程序化关闭 | 本工具行为 |
 |------|--------|-----------|-------------|-----------|
@@ -44,26 +45,26 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
 
 > 原则：**未显式调用 ≠ 没用**。千问这类无关闭开关的平台，本工具只做「体检」，把「动刀」留给你手动处理，避免给出你根本执行不了的「关闭建议」。
 
-## 🔒 P0 护栏（硬性，不可违背）
+## 🔒 行为契约（先读这段再信任它）
 
-本工具的本质是「体检报告」，**不是「手术刀」**：
+**默认只读，唯一受控写路径 / Read-only by default, one controlled write path：**
 
-1. **绝不自动关闭技能。** 只输出建议文本，不写 `settings.json`、不调用任何禁用/删除接口。
-   即使生成了 `--overrides` 骨架，也**必须等用户逐条显式确认后**才能动手，且优先引导用户用宿主自带的
-   `/skills` 菜单（按 Esc 才落盘）而非直接改配置文件。
-   · **在你同意下关闭（仅可关平台）**：在 WorkBuddy 等 `can_close` 平台，可加 `--apply --yes` 让工具**代你**
-   把候选写入 `skillOverrides` 的 `off` 态；该动作**先自动备份 `settings.json`、且缺 `--yes` 只做 dry-run 预览**，
-   绝不静默执行。千问等不可关平台会直接拒绝 `--apply`。
-2. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
+1. **默认不写任何文件。** 盘点、分类、建议全程只读；不调用任何禁用/删除接口。
+2. **唯一写路径（需你显式授权）。** 在 WorkBuddy 等可关平台上，`--overrides --apply --yes`
+   会**先自动备份 `settings.json`**，再把候选合并进 `skillOverrides` 的 `off` 态；
+   缺 `--yes` 只做 dry-run 预览（不读写任何文件）；千问等不可关平台直接拒绝 `--apply`。
+   每份报告和 `--overrides` 输出都会显式标注这条写路径——本工具**不会**静默或自行关闭任何技能。
+   优先引导宿主自带开关（如 `/skills` 菜单，按 Esc 才落盘）。
+3. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
    `--protect` 追加的。报告里它们单列在「受保护」一档。
-3. **未显式调用 ≠ 没用。** 用户可能**从不在对话里明说**要调某技能，而是：
+4. **未显式调用 ≠ 没用。** 用户可能**从不在对话里明说**要调某技能，而是：
    - 预先配置了**关键词/触发器**，让某类输入自动唤起它；
    - 借助会内部调用该技能的**专家/连接器组件**间接使用它。
    这两种用法在用量日志里**完全无痕**。所以**任何「可关闭候选」在关闭前，都必须向用户确认它是否仍被上述方式依赖**。
-4. **遥测缺口不判死。** 当平台无用量日志、或日志读取失败（已修 P1，会显式告警而非静默），
-   全库只能落「需人工确认」档，**绝不输出可关闭项**——宁可少报，不可误杀。
-5. **反向依赖扫描（应对你最担心的场景）。** 在判「可关闭」前，工具会先扫自动化任务 / Hook 里的技能引用
+5. **遥测缺口不判死。** 当平台无用量日志、或日志读取失败（已修 P1，会显式告警而非静默），
+   全库只能落「需人工确认」档，**不输出可关闭项**——宁可少报，不可误杀。
+6. **反向依赖扫描（应对你最担心的场景）。** 在判「可关闭」前，工具会先扫自动化任务 / Hook 里的技能引用
    （默认 `~/.workbuddy/automations` 与 `~/.workbuddy/hooks`，可用 `--refs` 追加）。
    **凡被引用的技能一律锁定为「受保护」**——无论它有没有用量日志。这堵住了
    「用户只设了关键词/触发器、或借专家·连接器组件间接调用，日志里完全无痕」导致的误杀。
@@ -86,3 +87,52 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
 ## 许可证
 
 MIT —— 见 [LICENSE](LICENSE)。
+
+---
+
+# English version
+
+**skill-inventory** — skill inventory & health check for office agents (WorkBuddy, QwenWork,
+Baidu DuMate, Tianxi AI, …). Scans any skills directory, measures size / context-token footprint,
+detects duplicates, and classifies skills into **used / closeable / manual-review / protected**.
+Skills whose manifest (name + description) rides along in every conversation turn cost real
+tokens — 54 installed skills ≈ 5,000+ tokens burned per turn; this tool provides the facts for
+"which ones to close", while the decision stays human.
+
+## Behaviour contract
+
+- **Read-only by default.** Inventory, classification and advice write nothing anywhere.
+- **Exactly one write path, gated by you**: `--overrides --apply --yes` on platforms with a
+  programmatic close channel (WorkBuddy family). It **backs up `settings.json` automatically
+  first**, then merges "off" entries into `skillOverrides`. Without `--yes` it is a dry-run
+  preview; non-closable platforms (QwenWork etc.) reject `--apply` outright. The tool never
+  closes a skill silently or on its own initiative.
+- **Protected skills never enter the closeable bucket**: this tool itself, `protected: true`,
+  safety/audit keyword hits, reference-locked skills, and anything you add via `--protect`.
+- **"No usage record" is not "unused"**: keyword triggers and expert/connector-internal calls
+  never appear in usage logs (structural blind spot). Reverse-dependency scanning locks every
+  skill referenced by automations/hooks/plugins; everything else lands in manual-review.
+- **Telemetry gap ⇒ nothing judged closeable** — under-reporting beats false kills.
+
+## Usage
+
+```bash
+python scripts/skill_inventory.py                          # full table + four buckets (auto-detect)
+python scripts/skill_inventory.py --agent workbuddy        # platform profile
+python scripts/skill_inventory.py --agent qwen             # QwenWork (scan-only)
+python scripts/skill_inventory.py --agent generic --root DIR
+python scripts/skill_inventory.py --impact <name>          # single-skill impact deep dive
+python scripts/skill_inventory.py --overrides --apply --yes   # WB: apply with your consent (backup first)
+python scripts/skill_inventory.py --json                   # machine-readable (English keys)
+python scripts/skill_inventory.py --lang en                # English report
+```
+
+## Language
+
+Docs are bilingual (Chinese + English). Reports default to Simplified Chinese; pass `--lang en`
+for English. Bucket names are always English identifiers and `--json` keys are always English,
+so scripted consumption is language-independent.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

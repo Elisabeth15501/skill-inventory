@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""skill-inventory —— 面向办公型 Agent 的技能库盘点与效能体检。
+"""skill-inventory —— 办公型 Agent 的技能库盘点与效能体检 / Skill inventory & health check for office agents.
 
     python skill_inventory.py                      # WorkBuddy 默认盘点
     python skill_inventory.py --agent qwen         # 千问办公（有调用记录则显示，关闭走连接器）
@@ -8,6 +8,16 @@
     python skill_inventory.py --unused             # 只看无使用记录的
     python skill_inventory.py --json               # 机器可读
     python skill_inventory.py --overrides          # 起草可关闭清单（草稿，需人工确认）
+    python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
+    python skill_inventory.py --lang en            # English report (default: zh)
+
+行为边界 / Behaviour contract
+----------------------------
+默认只读 / Read-only by default: the tool inventories, classifies and prints advice. It writes
+nothing unless you explicitly pass `--overrides --apply --yes` (WorkBuddy-family platforms only).
+唯一写路径 / Only write path: `--apply --yes` merges "off" entries into ~/.workbuddy/settings.json
+`skillOverrides`, after automatically backing up the file; without `--yes` it is a dry-run preview.
+Platforms without a programmatic close channel (qwen / baidu / generic) reject --apply outright.
     python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
 
 为什么需要它
@@ -33,14 +43,17 @@
 ------------------------------
   1. 受保护技能（见 PROTECTED_LEAVES / frontmatter `protected: true` / 安全关键词启发式）
      永不进入「可关闭」候选，单独列出「需人工介入才能关闭」。
-  2. 本工具**默认只输出建议，绝不自动改写 settings.json 或禁用任何技能**。
-     `--overrides` 产物也仅是「草稿」，须逐条人工确认后再用。
+  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。唯一写路径是
+     `--overrides --apply --yes`（仅 WorkBuddy 等可关平台）：先自动备份 settings.json，
+     再把候选合并进 skillOverrides；缺 `--yes` 时只做 dry-run 预览，不读写任何文件。
+     / Read-only by default: the only write path is `--overrides --apply --yes` (can_close
+     platforms only), which backs up settings.json first; without --yes it is a dry-run.
   3. 遥测缺口降级：当平台无用量日志 / 日志读取失败时，**全库不判为可关闭**，
      只给「需人工确认」档，并显式告警「无法确认冷技能」。
   4. 反向依赖扫描：判「可关闭」前，先扫自动化 / Hook / 专家·连接器 / 子 agent 的定义文件，
      凡被引用的技能**锁定**进受保护桶——堵住「被关键词触发器或专家组件间接调用却无使用日志」的误杀。
   5. **能力感知关闭（capability-aware close）**：不同 Agent 的「关闭」能力不同——
-     · 千问办公等**无关闭单技能开关**的平台：本工具**绝不产出任何关闭动作**，只给盘点 +
+     · 千问办公等**无关闭单技能开关**的平台：本工具不产出任何关闭动作，只给盘点 +
        手动移除目录指引（避免给出用户根本执行不了的「关闭建议」）。
      · WorkBuddy / 百度搭子等**可关闭**平台：才输出关闭动作；且 WB 的 `--apply --yes`
        仅在**你显式同意**下、并先自动备份后才落地。
@@ -81,7 +94,7 @@ RECENT_DAYS = 30
 # close_kind    ："filesystem"（WB 写 skillOverrides）/ "connector"（千问/百度经连接器或 UI 开关，工具不代执行）。
 PLATFORMS = {
     "workbuddy": {
-        "label": "WorkBuddy",
+        "label": "WorkBuddy", "label_en": "WorkBuddy",
         "skills_root": [HOME / ".workbuddy" / "skills"],
         "usage_log": HOME / ".workbuddy" / "usage-log.json",
         "usage_adapter": None,
@@ -89,7 +102,7 @@ PLATFORMS = {
         "close_kind": "filesystem",
     },
     "qwen": {
-        "label": "千问办公",
+        "label": "千问办公", "label_en": "QwenWork",
         "skills_root": [HOME / ".qwenworkcn" / "skills"],   # 实测真机路径（非 .qwenwork）
         "usage_log": HOME / ".qwenworkcn" / "skill-usage.json",  # 实测存在：usageCount/lastUsedAt
         "usage_adapter": "qwen",
@@ -97,7 +110,7 @@ PLATFORMS = {
         "close_kind": "connector",    # 关闭通道在 qwenwork 连接器，不经文件系统
     },
     "baidu": {
-        "label": "百度搭子",
+        "label": "百度搭子", "label_en": "Baidu DuMate",
         "skills_root": None,          # 多根（全局/会话/插件/禁用），由 detect_baidu_roots 自动探测
         "usage_log": None,            # 本机/云端均未暴露单技能用量日志 → 遥测缺口
         "usage_adapter": None,
@@ -108,7 +121,7 @@ PLATFORMS = {
     # 通用档（generic）：未识别宿主 / 自定义目录。参赛（天禧沙箱等）与任意办公 Agent 的兜底：
     # 只盘点 + 建议，永不程序化关闭，无遥测就诚实降级——「宁少报，不误杀」在陌生环境里是安全网。
     "generic": {
-        "label": "通用（自定义目录）",
+        "label": "通用（自定义目录）", "label_en": "Generic (custom dir)",
         "skills_root": None,          # 必须由 --root 指定
         "usage_log": None,            # 默认无遥测；可用 --usage-log 显式提供
         "usage_adapter": None,
@@ -246,7 +259,7 @@ def load_usage(path, adapter=None) -> tuple:
     并返回 available=False，让上层走「遥测缺口降级」分支（不判死）。
     """
     if path is None or not path.exists():
-        print(f"[warn] 未找到用量日志（未配置用量日志路径）—— 按「无遥测」降级，不判任何技能为可关闭。",
+        print(M("warn_no_log"),
               file=sys.stderr)
         return {}, False
     try:
@@ -257,7 +270,7 @@ def load_usage(path, adapter=None) -> tuple:
             data = raw.get("skills") or {}
         return data, True
     except Exception as e:  # noqa: BLE001 - 我们就是要兜住一切解析错误并告警
-        print(f"[warn] 用量日志读取失败（{e}）—— 按「无遥测」降级，不判任何技能为可关闭。",
+        print(M("warn_log_fail", e=e),
               file=sys.stderr)
         return {}, False
 
@@ -606,30 +619,184 @@ def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
     return buckets
 
 
+# ---------------------------------------------------------------------------
+# i18n：报告语言（--lang en|zh，默认 zh）。键名按「函数_语义」命名。
+# ---------------------------------------------------------------------------
+LANG = "zh"
+S = {
+    # --- report(): 遥测口径 ---
+    "tel_gap_1": ("⚠️  [遥测缺口] 本目录/平台无可用用量日志，无法确认冷技能。",
+                  "⚠️  [Telemetry gap] No usable usage log on this platform; cold skills cannot be confirmed."),
+    "tel_gap_2": ("    以下结论只基于「最后修改时间」，不可作为关闭依据——请人工确认每个技能是否",
+                  "    Conclusions below rest on last-modified time only and must not close anything — please manually"),
+    "tel_gap_3": ("    仍被「关键词触发器 / 自动化 / 专家·连接器组件」间接使用。\n",
+                  "    confirm each skill is not indirectly used via keyword triggers / automations / experts.\n"),
+    "tel_scope_1": ("ℹ  遥测口径：用量日志只覆盖「显式调用」（T1）。自动挂载 / 定时任务 / Hook / 专家内部",
+                    "ℹ  Telemetry scope: the usage log only records explicit invocations (T1). Auto-mounting, scheduled"),
+    "tel_scope_2": ("   调用（T2–T6）不计入——「有使用记录」≠「只被显式用过」，「无使用记录」也不等于",
+                    "   tasks, hooks and expert-internal calls (T2–T6) are not counted. \"Used\" ≠ \"explicitly used\", and"),
+    "tel_scope_3": ("   「没在用」（反向依赖扫描只兜住可发现的配置根）。\n",
+                    "   \"no record\" ≠ \"unused\" (reverse-dependency scanning covers discoverable config roots only).\n"),
+    # --- report(): 平台 notices ---
+    "conn_note": ("🔒 注意：{label} 的关闭/禁用在客户端 UI 或对应连接器操作（技能列表「启用开关」/ 专家套件禁用），本工具不代执行任何关闭动作。\n",
+                  "🔒 Note: in {label}, closing/disabling happens in the client UI or connector (enable toggle / expert-suite disable). This tool never performs a close action itself.\n"),
+    "gen_note_1": ("ℹ  {label}：未识别宿主的通用模式——仅输出盘点与建议，无程序化关闭通道。",
+                   "ℹ  {label}: generic mode for unrecognized hosts — inventory and advice only, no programmatic close channel."),
+    "gen_note_2": ("   关闭请使用宿主自带的技能启用/禁用开关，并逐条人工确认；「需人工确认」档的存在\n   正是因为自动挂载 / 定时任务 / Hook / 专家组件的用量在日志里不可见。\n",
+                   "   Use the host's own enable/disable toggles and confirm each item manually. The \"manual review\" bucket\n   exists precisely because automation/hook/expert usage is invisible to logs.\n"),
+    # --- report(): 汇总表 ---
+    "hdr_platform": ("平台", "Platform"),
+    "hdr_total": ("技能总数", "Skills total"),
+    "total_note": ("（市场安装 {m} / 自建或自改 {o}）", "(market-installed {m} / self-built or modified {o})"),
+    "hdr_keep": ("有使用记录", "Used (has records)"),
+    "hdr_prot": ("受保护（不关）", "Protected (no auto-close)"),
+    "hdr_cleanup": ("可关闭候选", "Close candidates"),
+    "hdr_cleanup_note": ("（仍须人工逐条确认）", "(per-item human confirmation still required)"),
+    "hdr_review": ("需人工确认", "Manual review"),
+    "hdr_footprint": ("清单占用", "Manifest footprint"),
+    "footprint": ("{c} 字符  ≈ {t:.0f} tokens / 每轮对话", "{c} chars  ≈ {t:.0f} tokens / conversation turn"),
+    "tbl_dir": ("目录", "Directory"), "tbl_lines": ("行", "ln"), "tbl_src": ("来源", "Src"),
+    "tbl_kb": ("KB", "KB"),
+    "tbl_mtime": ("最后改", "Modified"), "tbl_uses": ("用", "Use"), "tbl_lastused": ("最后用", "Last used"),
+    "src_market": ("市场", "market"), "src_self": ("自建", "self"),
+    # --- report(): 四档块 ---
+    "cleanup_hdr": ("🔻 可关闭候选：无使用记录 且 超过 {d} 天没改过（{n} 个）",
+                    "🔻 Close candidates: no usage record and untouched for over {d} days ({n})"),
+    "cleanup_warn": ("   ⚠ 仅建议，未经你显式确认不得关闭；先确认无关键词/专家触发依赖。",
+                     "   ⚠ Advice only — nothing is closed without your explicit confirmation; verify no trigger/expert dependency first."),
+    "unit_lines": (" 行", " ln"),
+    "review_hdr": ("⚠️  需人工确认：无使用记录但（近期改过 或 无遥测 或 平台不可关）（{n} 个）—— 别急着关",
+                   "⚠️  Manual review: no usage record but recently modified / no telemetry / platform cannot close ({n}) — do not rush"),
+    "prot_hdr": ("🔒 受保护（永不自动建议关闭，须人工明确介入）：{n} 个",
+                 "🔒 Protected (never auto-suggested for closing; explicit human action required): {n}"),
+    "reason_refs": ("被引用锁定：{n} 处（{kinds}）", "reference-locked: {n} hit(s) ({kinds})"),
+    "reason_safety": ("安全/审计类", "safety/audit class"),
+    "reason_marked": ("显式标记 protected / 自保护", "explicitly marked protected / self-protecting"),
+    # --- report(): 影响预览 / 重复 ---
+    "impact_hdr": ("🛰  影响预览（被引用锁定技能的依赖链路，{n} 个技能）：",
+                   "🛰  Impact preview (dependency chains of reference-locked skills, {n}):"),
+    "impact_row": ("关闭将断掉 {n} 处引用：", "closing breaks {n} reference(s):"),
+    "impact_hits": ("命中: {t}", "hits: {t}"),
+    "impact_hint": ("  （单技能深查：--impact <名称>；本扫描只覆盖可发现的配置根，T2 自动挂载不在此列）",
+                    "  (single-skill deep dive: --impact <name>; scanning covers discoverable config roots only, T2 auto-mounting excluded)"),
+    "dup_hdr": ("🔁 疑似重复/跨区（共 {n} 项）：", "🔁 Suspected duplicates/cross-region ({n} total):"),
+    "dup_genuine": ("  · ⚠ 真·多份激活：{d} （{n} 个区域均激活）", "  · ⚠ multiple active copies: {d} (active in {n} regions)"),
+    "dup_overlap": ("  · 激活+禁用副本：{d} （跨 {n} 区）", "  · active + disabled copy: {d} (across {n} regions)"),
+    "dup_name": ("  · 同名：{n}  ←  {l}", "  · same name: {n}  ←  {l}"),
+    # --- print_impact ---
+    "imp_notfound": ("[impact] 未找到名称或目录含「{q}」的技能。", '[impact] no skill whose name or dir contains "{q}".'),
+    "imp_locked": ("\n== {d}（{n}）— 🔒 被引用锁定，关闭将断掉 {m} 处引用：",
+                   "\n== {d} ({n}) — 🔒 reference-locked; closing breaks {m} reference(s):"),
+    "imp_hits": ("    命中: {t}", "    hits: {t}"),
+    "imp_why_prot": ("受保护（非引用原因）", "protected (non-reference reason)"),
+    "imp_why_norefs": ("未发现引用", "no references found"),
+    "imp_nomatch_1": ("  （本工具能扫描的配置根里没有它；但 T2 自动挂载与描述性关键词引用扫不到，",
+                      "  (not found in any config root this tool can scan; T2 auto-mounting and descriptive keyword"),
+    "imp_nomatch_2": ("   关闭前仍请人工确认。）", "   references are invisible — still confirm manually before closing.)"),
+    "imp_none_locked": ("\n[impact] 以上技能均未被自动化/Hook/路由/插件配置引用（就本工具可扫描的根而言）。",
+                        "\n[impact] none of the above are referenced by automation/hook/routing/plugin configs (within scannable roots)."),
+    # --- render_overrides ---
+    "ov_generic_1": ("// 通用模式（未识别宿主）没有程序化关闭通道，--overrides 不适用。",
+                     "// Generic mode (unrecognized host) has no programmatic close channel; --overrides does not apply."),
+    "ov_generic_2": ("//    请直接看报告的「可关闭候选 / 需人工确认」，再到宿主自带开关里手动处理。",
+                     "//    See the report's \"close candidates / manual review\" and use the host's own toggles."),
+    "ov_conn_1": ("// ⚠️ {label} 关闭通道为连接器/UI，本工具不产出任何关闭动作或 WB 骨架。",
+                  "// ⚠️ {label} closes via connector/UI; this tool emits no close actions or WB skeleton."),
+    "ov_conn_2": ("//    以下仅为「可关闭候选 / 需确认」清单，请在客户端确认后手动关闭。\n",
+                  "//    The list below is candidates/review only — close them manually in the client.\n"),
+    "ov_gap": ("// ⚠️ [遥测缺口] 无可用用量日志：不列出可关闭候选（避免误杀）。\n",
+               "// ⚠️ [Telemetry gap] no usable usage log: close candidates withheld (avoid false kills).\n"),
+    "ov_gap_fs": ("// ⚠️ [遥测缺口] 无可用用量日志：下方不输出任何 off 项（避免误杀）。",
+                  "// ⚠️ [Telemetry gap] no usable usage log: no \"off\" entries below (avoid false kills)."),
+    "ov_gap_fs_2": ("//    请人工确认每个技能是否仍被关键词/专家/自动化间接使用后再处理。\n",
+                    "//    Please manually confirm each skill is not indirectly used via keywords/experts/automations first.\n"),
+    "ov_conn_cand": ("//   🔻 候选：{d}", "//   🔻 candidate: {d}"),
+    "ov_conn_review": ("//   ⚠ 待确认：{d}", "//   ⚠ review: {d}"),
+    "ov_conn_prot": ("//   🔒 受保护：{l}", "//   🔒 protected: {l}"),
+    "ov_draft_1": ("// 🔒 仅供起草：已剔除受保护技能与近期改过的技能。",
+                   "// 🔒 Draft only: protected and recently-modified skills excluded."),
+    "ov_draft_2": ("//    ⚠️ 默认不自动应用；`--apply --yes` 才在您同意下落地（WB 写入 skillOverrides）。",
+                   "//    ⚠️ Never applied automatically; `--apply --yes` applies it with your consent (WB writes skillOverrides)."),
+    "ov_review_n": ("\n// 以下 {n} 个「需人工确认」，本次未纳入 off：", "\n// {n} manual-review items, not included in off this time:"),
+    "ov_review_row": ("//   {l}  (最后改 {m})", "//   {l}  (modified {m})"),
+    "ov_prot_n": ("\n// 🔒 以下 {n} 个受保护，已被排除：", "\n// 🔒 {n} protected skills excluded:"),
+    "ov_apply_ui": ("\n// ℹ️ {label} 的关闭需在客户端 UI 操作（技能列表「启用开关」/ 专家套件禁用），本工具暂不代执行。",
+                    "\n// ℹ️ {label}: closing must be done in the client UI (enable toggle / expert-suite disable); this tool does not perform it."),
+    # --- apply_wb ---
+    "warn_no_log": ("[warn] 未找到用量日志（未配置用量日志路径）—— 按「无遥测」降级，不判任何技能为可关闭。",
+                    "[warn] no usage log found (no path configured) -- degrading to no-telemetry; no skill will be marked closeable."),
+    "warn_log_fail": ("[warn] 用量日志读取失败（{e}）—— 按「无遥测」降级，不判任何技能为可关闭。",
+                      "[warn] usage log read failed ({e}) -- degrading to no-telemetry; no skill will be marked closeable."),
+    "ap_none": ("[apply] 没有可关闭候选，无需操作。", "[apply] no close candidates; nothing to do."),
+    "ap_dry": ("[dry-run] 未加 --yes，仅预览（不读写文件）：", "[dry-run] --yes missing; preview only (no files read or written):"),
+    "ap_backup": ("[backup] settings.json -> {p}", "[backup] settings.json -> {p}"),
+    "ap_new": ("[warn] 未找到 settings.json，将新建。", "[warn] settings.json not found; a new one will be created."),
+    "ap_done_1": ("[applied] 已写入 {n} 个 off 到 skillOverrides（四态之一；", '[applied] wrote {n} "off" entries into skillOverrides (one of the four states;'),
+    "ap_done_2": ("           确认后建议用 /skills 菜单按 Esc 落盘，便于统一查看）。",
+                  "           afterwards use the /skills menu (press Esc to persist) to review them in one place)."),
+    # --- resolve_agent ---
+    "ra_unknown": ("未知平台：{a}（可选：workbuddy / qwen / baidu / generic / auto）",
+                   "unknown platform: {a} (choose: workbuddy / qwen / baidu / generic / auto)"),
+    "ra_baidu_missing": ("⚠️ 未找到 {label} 的本地技能目录（预期位于 {p}）。请用 --root 指向某个技能区域目录。",
+                         "⚠️ {label} local skills dir not found (expected under {p}). Point --root at a skills region directory."),
+    "ra_generic_1": ("通用模式：未识别出已知办公 Agent 的技能目录。",
+                     "Generic mode: no known office-agent skills directory detected."),
+    "ra_generic_2": ("请用 --root <技能目录> 指向要盘点的目录（约定：目录内每个子目录 = 一个技能，含 SKILL.md 即视为技能）。",
+                     "Use --root <skills-dir> to point at the directory to inventory (each subdirectory containing a SKILL.md counts as one skill)."),
+    "ra_generic_3": ("可选：--usage-log <路径> 提供用量日志；--refs <路径> 提供反向依赖扫描根。",
+                     "Optional: --usage-log <path> for a usage log; --refs <path> for reverse-dependency scan roots."),
+    "ra_unverified": ("⚠️ {label} 的本地技能目录尚未在本机验证，请用 --root 指定。",
+                      "⚠️ {label} local skills dir not verified on this machine; specify --root."),
+    "ra_qwen_missing": ("未检测到千问办公的技能目录（{p}）。若已安装，请用 --root 指向其 skills 目录。",
+                        "QwenWork skills dir not found ({p}). If installed, point --root at its skills directory."),
+    "ra_missing": ("找不到技能目录：{p}", "skills directory not found: {p}"),
+    # --- main ---
+    "note_no_refs": ("[note] {label} 未找到可扫描的反向依赖根（自动化/Hook/路由配置），反向依赖锁定暂不可用；如有关键词触发器引用，请人工确认。",
+                     "[note] {label}: no scannable reverse-dependency roots (automations/hooks/routing); reference locking unavailable — confirm trigger dependencies manually."),
+    "unused_hdr": ("== 需关注（无使用记录）==", "== Needs attention (no usage records) =="),
+    "unused_cannot": ("\n⚠️ {label} 不支持程序化关闭；以上仅作人工审查/手动移除参考。",
+                      "\n⚠️ {label} does not support programmatic closing; the list above is for manual review/removal only."),
+}
+
+
+def plabel(profile: dict) -> str:
+    """平台显示名：en 模式取 label_en（缺省回落 label）。"""
+    if LANG == "en":
+        return profile.get("label_en") or profile["label"]
+    return profile["label"]
+
+
+def M(key: str, **kw) -> str:
+    """按当前 LANG 取文案；zh/en 双语，缺键回退 zh。"""
+    entry = S[key]
+    tmpl = entry[1] if LANG == "en" else entry[0]
+    return tmpl.format(**kw) if kw else tmpl
+
+
 def print_impact(rows: list, query: str) -> None:
     """--impact <名称>：单技能影响深查（全量列出、不截断），供关闭前逐条审阅（调研护栏 #4/#8）。"""
     q = query.lower()
     matched = [r for r in rows if q in r["dir"].lower() or q in r["name"].lower()]
     if not matched:
-        print(f"[impact] 未找到名称或目录含「{query}」的技能。", file=sys.stderr)
+        print(M("imp_notfound", q=query), file=sys.stderr)
         return
     any_locked = False
     for r in sorted(matched, key=lambda x: x["dir"]):
         refs = r.get("referenced_by") or []
         if refs:
             any_locked = True
-            print(f"\n== {r['dir']}（{r['name']}）— 🔒 被引用锁定，关闭将断掉 {len(refs)} 处引用：")
+            print(M("imp_locked", d=r["dir"], n=r["name"], m=len(refs)))
             for e in refs:
                 print(f"  · [{e['kind']}] {e['path']}")
-                print(f"    命中: {', '.join(e['terms'])}")
+                print(M("imp_hits", t=", ".join(e["terms"])))
         else:
-            why = "受保护（非引用原因）" if r.get("protected") else "未发现引用"
+            why = M("imp_why_prot") if r.get("protected") else M("imp_why_norefs")
             print(f"\n== {r['dir']}（{r['name']}）— {why} ==")
             if refs is not None and not refs and not r.get("protected"):
-                print("  （本工具能扫描的配置根里没有它；但 T2 自动挂载与描述性关键词引用扫不到，")
-                print("   关闭前仍请人工确认。）")
+                print(M("imp_nomatch_1"))
+                print(M("imp_nomatch_2"))
     if not any_locked:
-        print("\n[impact] 以上技能均未被自动化/Hook/路由/插件配置引用（就本工具可扫描的根而言）。", file=sys.stderr)
+        print(M("imp_none_locked"), file=sys.stderr)
 
 
 def report(rows: list, telemetry: bool, profile: dict) -> None:
@@ -639,81 +806,79 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
     b = classify(rows, telemetry, profile["can_close"])
 
     if b["telemetry_gap"]:
-        print("⚠️  [遥测缺口] 本目录/平台无可用用量日志，无法确认冷技能。")
-        print("    以下结论只基于「最后修改时间」，不可作为关闭依据——请人工确认每个技能是否")
-        print("    仍被「关键词触发器 / 自动化 / 专家·连接器组件」间接使用。\n")
+        print(M("tel_gap_1"))
+        print(M("tel_gap_2"))
+        print(M("tel_gap_3"))
     elif telemetry:
         # 调研 §2/§3：遥测只覆盖 T1 显式调用；「call_depth 覆盖 T5」本身属推断（§8 已标注）。
         # 有日志 ≠ 安全，这句必须在有遥测的平台上也常显。
-        print("ℹ  遥测口径：用量日志只覆盖「显式调用」（T1）。自动挂载 / 定时任务 / Hook / 专家内部")
-        print("   调用（T2–T6）不计入——「有使用记录」≠「只被显式用过」，「无使用记录」也不等于")
-        print("   「没在用」（反向依赖扫描只兜住可发现的配置根）。\n")
+        print(M("tel_scope_1"))
+        print(M("tel_scope_2"))
+        print(M("tel_scope_3"))
 
     if profile.get("close_kind") == "connector":
-        print(f"🔒 注意：{profile['label']} 的关闭/禁用在客户端 UI 或对应连接器操作"
-              f"（技能列表「启用开关」/ 专家套件禁用），本工具不代执行任何关闭动作。\n")
+        print(M("conn_note", label=plabel(profile)))
 
     if profile.get("close_kind") == "none":
-        print(f"ℹ  {profile['label']}：未识别宿主的通用模式——仅输出盘点与建议，无程序化关闭通道。")
-        print("   关闭请使用宿主自带的技能启用/禁用开关，并逐条人工确认；「需人工确认」档的存在")
-        print("   正是因为自动挂载 / 定时任务 / Hook / 专家组件的用量在日志里不可见。\n")
+        print(M("gen_note_1", label=plabel(profile)))
+        print(M("gen_note_2"))
 
-    print(f"平台            {profile['label']}")
-    print(f"技能总数        {len(rows)}    （市场安装 {market} / 自建或自改 {len(rows) - market}）")
-    print(f"有使用记录      {len(b['keep'])}")
-    print(f"受保护（不关）  {len(b['protected'])}")
-    print(f"可关闭候选      {len(b['cleanup'])}    （仍须人工逐条确认）")
-    print(f"需人工确认      {len(b['review'])}")
-    print(f"清单占用        {total_chars} 字符  ≈ {total_tokens:.0f} tokens / 每轮对话")
+    print(f"{M('hdr_platform'):<28}{plabel(profile)}")
+    print(f"{M('hdr_total'):<28}{len(rows)}    {M('total_note', m=market, o=len(rows) - market)}")
+    print(f"{M('hdr_keep'):<28}{len(b['keep'])}")
+    print(f"{M('hdr_prot'):<28}{len(b['protected'])}")
+    print(f"{M('hdr_cleanup'):<28}{len(b['cleanup'])}    {M('hdr_cleanup_note')}")
+    print(f"{M('hdr_review'):<28}{len(b['review'])}")
+    print(f"{'':<28}" + M("footprint", c=total_chars, t=total_tokens))
     print()
 
-    print(f"{_pad('目录',36)}{'':<2}{'行':>5}{'KB':>8}{'来源':>6}{'最后改':>11}{'用':>4}{'最后用':>11}")
+    print(f"{_pad(M('tbl_dir'),36)}{'':<2}{M('tbl_lines'):>5}{M('tbl_kb'):>8}{M('tbl_src'):>8}{M('tbl_mtime'):>11}{M('tbl_uses'):>5}{M('tbl_lastused'):>11}")
     print("-" * 88)
     for r in sorted(rows, key=lambda x: -(x["mtime"] or 0)):
-        src = "市场" if r["from_market"] else "自建"
+        src = M("src_market") if r["from_market"] else M("src_self")
         tag = "🔒" if r["protected"] else ("⚠" if r in b["review"] else "")
-        print(f"{_pad(r['dir'],36)}{tag:<2}{r['lines']:>5}{r['kb']:>8}{src:>6}"
+        print(f"{_pad(r['dir'],36)}{tag:<2}{r['lines']:>5}{r['kb']:>8}{src:>8}"
               f"{r['last_modified']:>11}{r['uses']:>4}{r['last_used'] or '—':>11}")
 
     if b["cleanup"]:
         print()
-        print(f"🔻 可关闭候选：无使用记录 且 超过 {RECENT_DAYS} 天没改过（{len(b['cleanup'])} 个）")
-        print("   ⚠ 仅建议，未经你显式确认不得关闭；先确认无关键词/专家触发依赖。")
+        print(M("cleanup_hdr", d=RECENT_DAYS, n=len(b["cleanup"])))
+        print(M("cleanup_warn"))
         for r in sorted(b["cleanup"], key=lambda x: -x["lines"]):
-            print(f"  {_pad(r['dir'],40)}{r['lines']:>5} 行   {r['last_modified']}")
+            print(f"  {_pad(r['dir'],40)}{r['lines']:>5}{M('unit_lines')}   {r['last_modified']}")
 
     if b["review"]:
         print()
-        print(f"⚠️  需人工确认：无使用记录但（近期改过 或 无遥测 或 平台不可关）（{len(b['review'])} 个）—— 别急着关")
+        print(M("review_hdr", n=len(b["review"])))
         for r in sorted(b["review"], key=lambda x: -x["mtime"]):
-            print(f"  {_pad(r['dir'],40)}{r['lines']:>5} 行   {r['last_modified']}")
+            print(f"  {_pad(r['dir'],40)}{r['lines']:>5}{M('unit_lines')}   {r['last_modified']}")
 
     if b["protected"]:
         print()
-        print(f"🔒 受保护（永不自动建议关闭，须人工明确介入）：{len(b['protected'])} 个")
+        print(M("prot_hdr", n=len(b["protected"])))
         for r in sorted(b["protected"], key=lambda x: x["dir"]):
             refs = r.get("referenced_by") or []
             if refs:
-                kinds = "、".join(sorted({e["kind"] for e in refs}))
-                reason = f"被引用锁定：{len(refs)} 处（{kinds}）"
+                kinds = ", ".join(sorted({e["kind"] for e in refs}))
+                reason = M("reason_refs", n=len(refs), kinds=kinds)
             elif r["safety_hit"]:
-                reason = "安全/审计类"
+                reason = M("reason_safety")
             else:
-                reason = "显式标记 protected / 自保护"
+                reason = M("reason_marked")
             print(f"  {_pad(r['dir'],40)}（{reason}）")
 
     # 影响预览（调研护栏 #4，§7 唯一 ⚠️ 项）：关闭某技能将断掉哪些链路——结构化逐条映射
     locked = [r for r in rows if r.get("referenced_by")]
     if locked:
         print()
-        print(f"🛰  影响预览（被引用锁定技能的依赖链路，{len(locked)} 个技能）：")
+        print(M("impact_hdr", n=len(locked)))
         for r in sorted(locked, key=lambda x: x["dir"]):
             refs = r["referenced_by"]
-            print(f"  ▸ {_pad(r['dir'], 36)} 关闭将断掉 {len(refs)} 处引用：")
+            print(f"  ▸ {_pad(r['dir'], 36)} {M('impact_row', n=len(refs))}")
             for e in refs:
                 print(f"      · [{e['kind']}] {e['path']}")
-                print(f"        命中: {', '.join(e['terms'])}")
-        print("  （单技能深查：--impact <名称>；本扫描只覆盖可发现的配置根，T2 自动挂载不在此列）")
+                print(f"        {M('impact_hits', t=', '.join(e['terms']))}")
+        print(M("impact_hint"))
 
     # P0-1：疑似重复/冗余技能
     #   (a) 同一 leaf 在 ≥2 个「非禁用」区域都激活 → 真·多份加载（重点）；
@@ -725,14 +890,14 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
     name_dups = find_duplicates(rows)
     if genuine or overlap or name_dups:
         print()
-        print(f"🔁 疑似重复/跨区（共 {len(genuine) + len(overlap) + len(name_dups)} 项）：")
+        print(M("dup_hdr", n=len(genuine) + len(overlap) + len(name_dups)))
         for r in sorted(genuine, key=lambda x: x["dir"]):
-            print(f"  · ⚠ 真·多份激活：{_pad(r['dir'], 28)} （{r['region_active_count']} 个区域均激活）")
+            print(M("dup_genuine", d=_pad(r["dir"], 28), n=r["region_active_count"]))
         for r in sorted(overlap, key=lambda x: x["dir"]):
-            print(f"  · 激活+禁用副本：{_pad(r['dir'], 24)} （跨 {r['region_count']} 区）")
+            print(M("dup_overlap", d=_pad(r["dir"], 24), n=r["region_count"]))
         for name, grp in sorted(name_dups.items()):
             locs = ", ".join(_pad(r["dir"], 26) for r in grp)
-            print(f"  · 同名：{name}  ←  {locs}")
+            print(M("dup_name", n=name, l=locs))
 
 
 def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool, yes: bool) -> None:
@@ -740,40 +905,40 @@ def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool,
 
     # 通用档（generic）：未知宿主没有关闭通道，--overrides 不适用——显式拦截而非落进 filesystem 分支
     if profile.get("close_kind") == "none":
-        print("// 通用模式（未识别宿主）没有程序化关闭通道，--overrides 不适用。")
-        print("//    请直接看报告的「可关闭候选 / 需人工确认」，再到宿主自带开关里手动处理。")
+        print(M("ov_generic_1"))
+        print(M("ov_generic_2"))
         return
 
     # 连接器平台（千问/百度）：关闭在客户端 UI，不产出 WB skillOverrides 骨架
     if profile.get("close_kind") == "connector":
-        print(f"// ⚠️ {profile['label']} 关闭通道为连接器/UI，本工具不产出任何关闭动作或 WB 骨架。")
-        print("//    以下仅为「可关闭候选 / 需确认」清单，请在客户端确认后手动关闭。\n")
+        print(M("ov_conn_1", label=plabel(profile)))
+        print(M("ov_conn_2"))
         if b["telemetry_gap"]:
-            print("// ⚠️ [遥测缺口] 无可用用量日志：不列出可关闭候选（避免误杀）。\n")
+            print(M("ov_gap"))
         for r in sorted(b["cleanup"], key=lambda x: x["dir"]):
-            print(f"//   🔻 候选：{r['dir']}")
+            print(M("ov_conn_cand", d=r["dir"]))
         for r in sorted(b["review"], key=lambda x: x["dir"]):
-            print(f"//   ⚠ 待确认：{r['dir']}")
+            print(M("ov_conn_review", d=r["dir"]))
         for r in sorted(b["protected"], key=lambda x: x["dir"]):
-            print(f"//   🔒 受保护：{r['leaf']}")
+            print(M("ov_conn_prot", l=r["leaf"]))
         return
 
     # 可关平台（filesystem，WorkBuddy）：输出关闭草稿；--apply 才在同意下落地
     if b["telemetry_gap"]:
-        print("// ⚠️ [遥测缺口] 无可用用量日志：下方不输出任何 off 项（避免误杀）。")
-        print("//    请人工确认每个技能是否仍被关键词/专家/自动化间接使用后再处理。\n")
-    print("// 🔒 仅供起草：已剔除受保护技能与近期改过的技能。")
-    print("//    ⚠️ 默认不自动应用；`--apply --yes` 才在您同意下落地（WB 写入 skillOverrides）。")
+        print(M("ov_gap_fs"))
+        print(M("ov_gap_fs_2"))
+    print(M("ov_draft_1"))
+    print(M("ov_draft_2"))
     print('"skillOverrides": {')
     for r in sorted(b["cleanup"], key=lambda x: x["dir"]):
         print(f'  "{r["leaf"]}": "off",')
     print('}')
     if b["review"]:
-        print(f"\n// 以下 {len(b['review'])} 个「需人工确认」，本次未纳入 off：")
+        print(M("ov_review_n", n=len(b["review"])))
         for r in sorted(b["review"], key=lambda x: x["dir"]):
-            print(f"//   {r['leaf']}  (最后改 {r['last_modified']})")
+            print(M("ov_review_row", l=r["leaf"], m=r["last_modified"]))
     if b["protected"]:
-        print(f"\n// 🔒 以下 {len(b['protected'])} 个受保护，已被排除：")
+        print(M("ov_prot_n", n=len(b["protected"])))
         for r in sorted(b["protected"], key=lambda x: x["dir"]):
             print(f"//   {r['leaf']}")
 
@@ -781,8 +946,7 @@ def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool,
         if profile["close_kind"] == "filesystem":
             apply_wb([r["leaf"] for r in b["cleanup"]], yes)
         else:
-            print(f"\n// ℹ️ {profile['label']} 的关闭需在客户端 UI 操作"
-                  f"（技能列表「启用开关」/ 专家套件禁用），本工具暂不代执行。")
+            print(M("ov_apply_ui", label=plabel(profile)))
 
 
 def backup_settings() -> pathlib.Path:
@@ -801,27 +965,27 @@ def apply_wb(leaves: list, yes: bool) -> None:
     dry-run（未加 --yes）只预览，不读写任何文件。
     """
     if not leaves:
-        print("[apply] 没有可关闭候选，无需操作。")
+        print(M("ap_none"))
         return
     settings = HOME / ".workbuddy" / "settings.json"
     if not yes:
-        print("[dry-run] 未加 --yes，仅预览（不读写文件）：")
+        print(M("ap_dry"))
         print(json.dumps({"skillOverrides": {l: "off" for l in leaves}}, ensure_ascii=False, indent=2))
         return
     # 仅在真正同意时才备份 + 写入
     bak, _ = backup_settings()
     if settings.exists():
-        print(f"[backup] settings.json -> {bak}")
+        print(M("ap_backup", p=bak))
     else:
-        print("[warn] 未找到 settings.json，将新建。")
+        print(M("ap_new"))
     data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
     ov = data.get("skillOverrides") or {}
     for lf in leaves:
         ov[lf] = "off"
     data["skillOverrides"] = ov
     settings.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[applied] 已写入 {len(leaves)} 个 off 到 skillOverrides（四态之一；")
-    print("           确认后建议用 /skills 菜单按 Esc 落盘，便于统一查看）。")
+    print(M("ap_done_1", n=len(leaves)))
+    print(M("ap_done_2"))
 
 
 def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
@@ -840,16 +1004,15 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
             agent = "generic"   # 未知宿主（天禧沙箱等）：回落通用档，不再硬套 workbuddy 路径
     profile = PLATFORMS.get(agent)
     if profile is None:
-        print(f"未知平台：{agent}（可选：workbuddy / qwen / baidu / generic / auto）", file=sys.stderr)
+        print(M("ra_unknown", a=agent), file=sys.stderr)
         return None, None, None, None
 
     # 百度：多根自动探测（或 --root 显式指定）
     if profile.get("multi_root"):
         roots = detect_baidu_roots(root_arg)
         if not roots:
-            print(f"⚠️ 未找到 {profile['label']} 的本地技能目录（预期位于 "
-                  f"{APPDATA / 'qianfan-desktop-app' / 'qianfan_desk_xdg'}）。"
-                  f"请用 --root 指向某个技能区域目录。", file=sys.stderr)
+            print(M("ra_baidu_missing", label=profile["label"],
+                    p=APPDATA / 'qianfan-desktop-app' / 'qianfan_desk_xdg'), file=sys.stderr)
             return None, None, None, None
         return profile, roots, None, agent
 
@@ -860,52 +1023,64 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
         sr = profile["skills_root"]
         if not sr:
             if agent == "generic":
-                print("通用模式：未识别出已知办公 Agent 的技能目录。", file=sys.stderr)
-                print("请用 --root <技能目录> 指向要盘点的目录（约定：目录内每个子目录 = 一个技能，"
-                      "含 SKILL.md 即视为技能）。", file=sys.stderr)
-                print("可选：--usage-log <路径> 提供用量日志；--refs <路径> 提供反向依赖扫描根。", file=sys.stderr)
+                print(M("ra_generic_1"), file=sys.stderr)
+                print(M("ra_generic_2"), file=sys.stderr)
+                print(M("ra_generic_3"), file=sys.stderr)
             else:
-                print(f"⚠️ {profile['label']} 的本地技能目录尚未在本机验证，请用 --root 指定。",
-                      file=sys.stderr)
+                print(M("ra_unverified", label=plabel(profile)), file=sys.stderr)
             return None, None, None, None
         roots = [{"path": p, "label": "", "disabled": False} for p in sr]
     missing = [r for r in roots if not r["path"].is_dir()]
     if missing:
         for r in missing:
             if agent == "qwen":
-                print(f"未检测到千问办公的技能目录（{r['path']}）。若已安装，请用 --root 指向其 skills 目录。",
-                      file=sys.stderr)
+                print(M("ra_qwen_missing", p=r["path"]), file=sys.stderr)
             else:
-                print(f"找不到技能目录：{r['path']}", file=sys.stderr)
+                print(M("ra_missing", p=r["path"]), file=sys.stderr)
         return None, None, None, None
     usage = pathlib.Path(usage_arg) if usage_arg else profile["usage_log"]
     return profile, roots, usage, agent
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="面向办公型 Agent 的技能库盘点与效能体检")
+    ap = argparse.ArgumentParser(
+        description="Office-agent skill inventory & health check 办公型 Agent 技能库盘点与效能体检")
     ap.add_argument("--agent", default="auto",
                     choices=["workbuddy", "qwen", "baidu", "generic", "auto"],
-                    help="目标平台档位（决定能否程序化关闭）。auto 探测已知平台，失败回落 generic 通用档")
-    ap.add_argument("--root", default="", help="技能目录（覆盖平台默认；默认 ~/.workbuddy/skills 等）")
-    ap.add_argument("--usage-log", default="", help="用量日志路径（覆盖平台默认；无则按无遥测降级）")
-    ap.add_argument("--unused", action="store_true", help="只列出无使用记录的技能")
-    ap.add_argument("--json", action="store_true", help="输出机器可读 JSON")
+                    help="Target platform (determines close channel) 目标平台档位；auto 探测失败回落 generic")
+    ap.add_argument("--root", default="",
+                    help="Skills directory (overrides platform default) 技能目录")
+    ap.add_argument("--usage-log", default="",
+                    help="Usage log path (no log -> telemetry-gap degradation) 用量日志路径")
+    ap.add_argument("--unused", action="store_true",
+                    help="List only skills without usage records 只列出无使用记录的技能")
+    ap.add_argument("--json", action="store_true",
+                    help="Machine-readable JSON output 机器可读 JSON（键恒为英文）")
     ap.add_argument("--overrides", action="store_true",
-                    help="为「可关闭候选」生成 skillOverrides 的 off 骨架（草稿，须人工确认）")
+                    help="Draft a skillOverrides 'off' skeleton (advice only) 起草可关闭清单（草稿，须人工确认）")
     ap.add_argument("--apply", action="store_true",
-                    help="在你同意下落地关闭（仅 can_close 平台；WB 写 skillOverrides）。须配 --yes")
-    ap.add_argument("--yes", action="store_true", help="确认执行 --apply（否则仅 dry-run 预览）")
-    ap.add_argument("--protect", default="", help="追加受保护技能名（逗号分隔，leaf 或 name）")
-    ap.add_argument("--protect-file", default="", help="从文件读取受保护技能名（每行一个）")
+                    help="Apply the draft with your consent (can_close platforms only; requires --yes) "
+                         "落地关闭（仅可关平台，须配 --yes；先自动备份）")
+    ap.add_argument("--yes", action="store_true",
+                    help="Confirm --apply (otherwise dry-run preview) 确认执行 --apply（否则仅预览）")
+    ap.add_argument("--protect", default="",
+                    help="Extra protected skill names (comma-separated) 追加受保护技能名")
+    ap.add_argument("--protect-file", default="",
+                    help="Read protected names from file (one per line) 从文件读取受保护技能名")
     ap.add_argument("--no-safety-heuristic", action="store_true",
-                    help="关闭「安全/审计类」关键词启发式保护（默认开启）")
-    ap.add_argument("--refs", default="", help="额外反向依赖扫描根（逗号分隔，文件或目录）")
-    ap.add_argument("--impact", metavar="名称", default=None,
-                    help="只查指定技能的影响预览（关闭将断掉哪些引用链路，全量不截断）")
+                    help="Disable the safety/audit keyword heuristic (on by default) 关闭安全类关键词启发式")
+    ap.add_argument("--refs", default="",
+                    help="Extra reverse-dependency scan roots (comma-separated) 额外反向依赖扫描根")
+    ap.add_argument("--impact", metavar="NAME", default=None,
+                    help="Impact preview for one skill (untruncated) 单技能影响深查")
     ap.add_argument("--no-ref-scan", action="store_true",
-                    help="关闭反向依赖扫描（默认开启：扫自动化/Hook/设置里的技能引用并锁定）")
+                    help="Disable reverse-dependency scanning (on by default) 关闭反向依赖扫描")
+    ap.add_argument("--lang", default="zh", choices=["zh", "en"],
+                    help="Report language (default: zh; JSON keys are always English) 报告语言")
     args = ap.parse_args()
+
+    global LANG
+    LANG = args.lang
 
     profile, roots, usage_path, agent_key = resolve_agent(args.agent, args.root, args.usage_log)
     if roots is None:
@@ -941,9 +1116,7 @@ def main() -> int:
         if args.refs:
             ref_roots += [x for x in args.refs.split(",") if x.strip()]
         if not ref_roots and agent_key != "workbuddy":
-            print(f"[note] {profile['label']} 未找到可扫描的反向依赖根（自动化/Hook/路由配置），"
-                  f"反向依赖锁定暂不可用；如有关键词触发器引用，请人工确认。",
-                  file=sys.stderr)
+            print(M("note_no_refs", label=plabel(profile)), file=sys.stderr)
         if ref_roots:
             referenced = scan_references(rows, ref_roots)
             for r in rows:
@@ -978,11 +1151,11 @@ def main() -> int:
 
     if args.unused:
         b = classify(rows, telemetry, profile["can_close"])
-        print(f"== 需关注（无使用记录）==")
+        print(M("unused_hdr"))
         for r in sorted(b["review"] + b["cleanup"], key=lambda x: -x["lines"]):
-            print(f"{r['dir']:<40}{r['lines']:>5} 行   {r['last_modified']}")
+            print(f"{r['dir']:<40}{r['lines']:>5}{M('unit_lines')}   {r['last_modified']}")
         if b["cannot_close"]:
-            print(f"\n⚠️ {profile['label']} 不支持程序化关闭；以上仅作人工审查/手动移除参考。")
+            print(M("unused_cannot", label=plabel(profile)))
         return 0
 
     report(rows, telemetry, profile)
