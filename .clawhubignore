@@ -1,0 +1,3 @@
+# ClawHub 强制 MIT-0 且不支持按技能覆盖许可证，
+# 仓库自带的 MIT LICENSE 与平台条款冲突 → 发布包排除（仅仓库留档）。
+LICENSE

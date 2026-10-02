@@ -7,6 +7,10 @@ description: 办公型 Agent 通用的技能库盘点与效能体检。扫描任
 tags: [技能管理, 效率工具, 上下文优化, 盘点, 运维]
 author: Elisabeth15501
 version: 1.0.0
+metadata:
+  openclaw:
+    requires:
+      bins: [python3, python]
 ---
 
 # skill-inventory · 办公型 Agent 通用的技能库盘点与效能体检
