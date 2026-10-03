@@ -9,24 +9,34 @@
     python skill_inventory.py --json               # 机器可读
     python skill_inventory.py --overrides          # 起草可关闭清单（草稿，需人工确认）
     python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
-    python skill_inventory.py --lang en            # English report (default: zh; or set env SKILL_INV_LANG=en)
+    python skill_inventory.py --lang en            # English report for THIS run (one-off override)
+    python skill_inventory.py --set-lang auto      # 保存语言偏好：auto/zh/en（保存后立即生效）
+    python skill_inventory.py --show-lang          # 查看当前语言设置、可选项及切换方式
 
 权限与持久化声明 / Permission & persistence declaration
 ------------------------------------------------------
-WRITE SCOPE: only ~/.workbuddy/settings.json -> key "skillOverrides", via --overrides --apply --yes
-(auto-backup first, dry-run without --yes). Everything else is read-only.
-PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification, no state
-files of its own. The only cross-session effect is the consented "off" entries in skillOverrides,
-which are reversible at any time via the host's /skills menu.
+WRITE SCOPE: exactly two paths, both disclosed here:
+  1. ~/.workbuddy/settings.json -> key "skillOverrides", via --overrides --apply --yes
+     (auto-backup first, dry-run without --yes);
+  2. ~/.workbuddy/skill-inventory.json -> report language preference {"language": "auto|zh|en"},
+     written only when the user explicitly runs --set-lang (a display preference; revert via
+     --set-lang auto or by deleting the file).
+Everything else is read-only.
+PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification.
+Cross-session effects are limited to the two user-controlled writes above: the consented
+"off" entries in skillOverrides (reversible at any time via the host's /skills menu) and the
+language preference file (reversible via --set-lang auto or file deletion).
 NETWORK: none. SUBPROCESS: none.
 
 行为边界 / Behaviour contract
 ----------------------------
 默认只读 / Read-only by default: the tool inventories, classifies and prints advice. It writes
 nothing unless you explicitly pass `--overrides --apply --yes` (WorkBuddy-family platforms only).
-写路径仅限一处 / Single write path: `--apply --yes` merges "off" entries into ~/.workbuddy/settings.json
-`skillOverrides`, after automatically backing up the file; without `--yes` it is a dry-run preview.
-Platforms without a programmatic close channel (qwen / baidu / generic) reject --apply outright.
+写路径共两处、均需显式授权 / Two disclosed, consent-gated write paths: (1) `--apply --yes` merges
+"off" entries into ~/.workbuddy/settings.json `skillOverrides`, after automatically backing up the
+file; without `--yes` it is a dry-run preview. Platforms without a programmatic close channel
+(qwen / baidu / generic) reject --apply outright. (2) `--set-lang` writes the report language
+preference to ~/.workbuddy/skill-inventory.json (user-controlled display preference only).
 
 为什么需要它
 ------------
@@ -89,6 +99,8 @@ HOME = pathlib.Path.home()
 APPDATA = pathlib.Path(os.environ.get("APPDATA", HOME / "AppData" / "Roaming"))
 SKILLS_DIR = HOME / ".workbuddy" / "skills"
 USAGE_LOG = HOME / ".workbuddy" / "usage-log.json"
+# 语言偏好配置（仅 --set-lang 显式写入；删除该文件即恢复默认 auto）
+LANG_CONFIG = HOME / ".workbuddy" / "skill-inventory.json"
 
 # 30 天内改动过 = 视为「可能新建/在用」。usage-log 对新建技能必然没有记录，
 # 不设这道闸就会把刚写的技能也判成「该关」。
@@ -764,6 +776,21 @@ S = {
     "unused_hdr": ("== 需关注（无使用记录）==", "== Needs attention (no usage records) =="),
     "unused_cannot": ("\n⚠️ {label} 不支持程序化关闭；以上仅作人工审查/手动移除参考。",
                       "\n⚠️ {label} does not support programmatic closing; the list above is for manual review/removal only."),
+    # --- language setting (--set-lang / --show-lang) ---
+    "lang_saved": ("[lang] 语言设置已保存：{mode}",
+                   "[lang] Language setting saved: {mode}"),
+    "lang_file": ("    配置文件 Config file: {p}（删除该文件即恢复默认 auto）",
+                  "    Config file: {p} (delete it to fall back to the default \"auto\")"),
+    "lang_cur": ("当前语言设置 Current setting: {mode}", "Current language setting: {mode}"),
+    "lang_opts_hdr": ("可选值及说明 Options:", "Options:"),
+    "lang_opt_auto": ("  auto  自动——Agent 按当前对话语言传 --lang 决定；未传参时依次回落：环境变量 SKILL_INV_LANG → 系统区域语言 → 中文",
+                      "  auto  automatic — the Agent decides per conversation language via --lang; if unset, falls back to env SKILL_INV_LANG -> system locale -> Chinese"),
+    "lang_opt_zh": ("  zh    始终使用中文回复", "  zh    always respond in Chinese"),
+    "lang_opt_en": ("  en    始终使用英文回复", "  en    always respond in English"),
+    "lang_change": ("切换方式 Change: --set-lang auto|zh|en（保存，立即生效）· --lang zh|en（仅本次运行覆盖）",
+                    "Change it with: --set-lang auto|zh|en (saved, effective immediately) · --lang zh|en (this run only)"),
+    "lang_json_note": ("注：--json 输出恒为英文键，不受语言设置影响。",
+                       "Note: --json output is always English-keyed, regardless of language settings."),
 }
 
 
@@ -779,6 +806,72 @@ def M(key: str, **kw) -> str:
     entry = S[key]
     tmpl = entry[1] if LANG == "en" else entry[0]
     return tmpl.format(**kw) if kw else tmpl
+
+
+# ---------------------------------------------------------------------------
+# 语言设置：auto（默认）/ zh / en
+#   解析优先级：--lang（本次显式传参）> 已保存设置（zh/en）> auto 回落链
+#   （SKILL_INV_LANG / WB_LANG 环境变量 → 系统区域语言 → 中文）。
+# ---------------------------------------------------------------------------
+def load_lang_pref():
+    """读语言偏好文件；缺失/损坏/值非法 → None（视为默认 auto）。"""
+    try:
+        d = json.loads(LANG_CONFIG.read_text(encoding="utf-8"))
+        v = str(d.get("language", "")).strip().lower()
+        return v if v in ("auto", "zh", "en") else None
+    except Exception:
+        return None
+
+
+def save_lang_pref(mode: str) -> None:
+    """把语言偏好写入 LANG_CONFIG（仅由显式 --set-lang 触发的第二个受控写路径）。"""
+    LANG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    LANG_CONFIG.write_text(
+        json.dumps({"language": mode}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _system_lang() -> str:
+    """auto 回落链的「系统区域语言」环节：Windows 读用户 UI 语言，其他平台读环境变量。"""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        v = os.environ.get(var)
+        if v:
+            return v
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            lid = int(ctypes.windll.kernel32.GetUserDefaultUILanguage()) & 0x3FF
+            return {4: "zh", 9: "en"}.get(lid, "")
+        except Exception:
+            return ""
+    return ""
+
+
+def resolve_lang(explicit) -> str:
+    """解析本次运行的语言。explicit 为 --lang 显式值（zh/en）或 None。"""
+    if explicit:
+        return explicit
+    saved = load_lang_pref() or "auto"
+    if saved in ("zh", "en"):
+        return saved
+    env = os.environ.get("SKILL_INV_LANG") or os.environ.get("WB_LANG")
+    if env in ("zh", "en"):
+        return env
+    loc = _system_lang().lower()
+    if loc.startswith("en"):
+        return "en"
+    return "zh"   # auto 的最终回落：中文
+
+
+def print_lang_options() -> None:
+    """打印三个语言选项及说明、切换方式（设置展示入口）。"""
+    print(M("lang_opts_hdr"))
+    print(M("lang_opt_auto"))
+    print(M("lang_opt_zh"))
+    print(M("lang_opt_en"))
+    print(M("lang_change"))
+    print(M("lang_json_note"))
 
 
 def print_impact(rows: list, query: str) -> None:
@@ -1083,15 +1176,31 @@ def main() -> int:
                     help="Impact preview for one skill (untruncated) 单技能影响深查")
     ap.add_argument("--no-ref-scan", action="store_true",
                     help="Disable reverse-dependency scanning (on by default) 关闭反向依赖扫描")
-    _env_lang = os.environ.get("SKILL_INV_LANG") or os.environ.get("WB_LANG") or "zh"
-    _env_lang = _env_lang if _env_lang in ("zh", "en") else "zh"
-    ap.add_argument("--lang", default=_env_lang, choices=["zh", "en"],
-                    help="Report language (default: env SKILL_INV_LANG, else zh; JSON keys are "
-                         "always English) 报告语言（可用环境变量 SKILL_INV_LANG 固定偏好）")
+    ap.add_argument("--set-lang", metavar="LANG", default=None, choices=["auto", "zh", "en"],
+                    help="Save the report language preference and exit; auto = the Agent decides per "
+                         "conversation language. 保存语言设置（auto/zh/en）后退出，切换立即生效")
+    ap.add_argument("--show-lang", action="store_true",
+                    help="Show the saved language setting, options and how to change them "
+                         "显示当前语言设置、各选项说明及切换方式")
+    ap.add_argument("--lang", default=None, choices=["zh", "en"],
+                    help="Report language for THIS run only (overrides the saved setting; JSON keys "
+                         "are always English) 本次运行的语言（覆盖已保存设置；--json 键恒为英文）")
     args = ap.parse_args()
 
     global LANG
-    LANG = args.lang
+    LANG = resolve_lang(args.lang)
+
+    if args.set_lang:
+        save_lang_pref(args.set_lang)
+        LANG = resolve_lang(None)   # 保存后立即按新设置生效（本次确认信息也用它输出）
+        print(M("lang_saved", mode=args.set_lang))
+        print(M("lang_file", p=LANG_CONFIG))
+        print_lang_options()
+        return 0
+    if args.show_lang:
+        print(M("lang_cur", mode=load_lang_pref() or "auto"))
+        print_lang_options()
+        return 0
 
     profile, roots, usage_path, agent_key = resolve_agent(args.agent, args.root, args.usage_log)
     if roots is None:

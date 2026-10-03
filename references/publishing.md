@@ -1,22 +1,12 @@
-# 多平台发布差异清单 · Multi-platform publishing checklist（skill-inventory）
+# 多平台发布差异清单（skill-inventory）
 
-> **Language / 语言**：本文档为维护者内部发布备忘，中英双语概要 + 中文细则。
-> This maintainer checklist is bilingual: an English TL;DR below, details in Chinese.
-> 报告与文档的用户可自选语言（`--lang en|zh` 或环境变量 `SKILL_INV_LANG`）/ end users choose
-> their report language via `--lang en|zh` or the `SKILL_INV_LANG` env var.
+> **English version**: [publishing.en.md](publishing.en.md)
+> 报告语言由用户自选（`--set-lang auto|zh|en` 保存 / `--lang` 单次覆盖）；
+> 文档已有中英双版：`SKILL.md` / `SKILL.en.md`、`README.md` / `README.en.md`、
+> 本文件 / `publishing.en.md`、`usage-triggers.md` / `usage-triggers.en.md`。
 
 > 本技能同时发布到 SkillHub 与 ClawHub，两平台规则相反，清理清单互不通用。
 > 每次发布前对照本清单执行，别凭记忆。
-
-## English TL;DR
-
-- Two publishing targets with **opposite rules**: SkillHub (slug `skill-inventory`, requires a
-  clean `git archive` copy with `.gitignore` / `LICENSE` / `.clawhubignore` / `references/.gitkeep`
-  removed) vs ClawHub (slug `agent-skill-inventory`, packages the workspace directly, honors
-  `.clawhubignore` which excludes `LICENSE` and `config.yaml`).
-- Keep `version` in SKILL.md frontmatter in sync with the `--version` flag of both CLIs.
-- **Pin the clawhub CLI version** (`npx clawhub@0.23.3`), never `@latest` — unpinned remote code
-  in a publishing workflow is a supply-chain risk (and is flagged by SkillSpector Rp1).
 
 ## 平台对照
 
@@ -52,5 +42,8 @@ npx clawhub@0.23.3 skill publish . \
 
 - **改版本号时两平台共用同一份 SKILL.md frontmatter**，一次改动两边生效，`--version` 显式传保持一致。
 - **为 ClawHub 做的调整不要顺手动 SkillHub 产物**，反之亦然（`.clawhubignore` 只对 ClawHub 有意义，SkillHub 副本里必须删）。
-- SkillHub v1.0.0 发布响应曾返回 `source: "clawhub"`（个人发布预期为 `community`）——待审核通过后核对实际命名空间，若异常需联系平台（skillhub@tencent.com / GitHub issues）。
+- **门禁文案红线**：SkillHub 广告法扫描对极限词敏感——「唯一」「绝不」这类词会判 blocker/HIGH。
+  表述写法用「仅限」「共两处」「仅一处」等限定式措辞替代。
+- SkillHub v1.0.0 发布响应曾返回 `source: "clawhub"`（个人发布预期为 `community`）——v1.1.0/v1.2.0 均正确返回 `community`，判断为首发瞬时问题；若再现再联系平台（skillhub@tencent.com / GitHub issues）。
 - ClawHub 的 `--categories` 首次发布不传（未知 slug 会失败），发布后到网页端设置页改分类。
+- 英文文档（`SKILL.en.md` / `README.en.md` / `references/*.en.md`）随包发布无碍——两个平台都只把 `SKILL.md` 当主文档解析。
