@@ -55,17 +55,19 @@ preference to ~/.workbuddy/skill-inventory.json (user-controlled display prefere
        (a) 预先配置了「关键词/触发器」让某类输入自动唤起它；
        (b) 借助会内部调用该 skill 的「专家 / 连接器组件」间接使用它。
    这两种用法在用量日志里**完全无痕**。
-   所以：有记录 ⇒ 确实用过（可信）；无记录 ⇒ **绝不**直接判死。
+   所以：有记录 ⇒ 确实用过（可信）；无记录 ⇒ **不**直接判死。
 
 🔒 P0 护栏（本工具的硬性安全设计）
 ------------------------------
   1. 受保护技能（见 PROTECTED_LEAVES / frontmatter `protected: true` / 安全关键词启发式）
      永不进入「可关闭」候选，单独列出「需人工介入才能关闭」。
-  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。写路径仅限一处，即
-     `--overrides --apply --yes`（仅 WorkBuddy 等可关平台）：先自动备份 settings.json，
-     再把候选合并进 skillOverrides；缺 `--yes` 时只做 dry-run 预览，不读写任何文件。
-     / Read-only by default: the only write path is `--overrides --apply --yes` (can_close
-     platforms only), which backs up settings.json first; without --yes it is a dry-run.
+  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。写路径共两处、均需
+     显式授权：`--overrides --apply --yes`（仅 WorkBuddy 等可关平台）：先自动备份 settings.json，
+     再把候选合并进 skillOverrides；缺 `--yes` 时只做 dry-run 预览，不读写任何文件；
+     `--set-lang` 仅写 ~/.workbuddy/skill-inventory.json 语言偏好（改回 auto 或删文件即还原）。
+     / Read-only by default: two disclosed, consent-gated write paths — `--overrides --apply
+     --yes` (can_close platforms only, backup first, dry-run without --yes) and `--set-lang`
+     (writes the language preference file only; revert via --set-lang auto or file deletion).
   3. 遥测缺口降级：当平台无用量日志 / 日志读取失败时，**全库不判为可关闭**，
      只给「需人工确认」档，并显式告警「无法确认冷技能」。
   4. 反向依赖扫描：判「可关闭」前，先扫自动化 / Hook / 专家·连接器 / 子 agent 的定义文件，
@@ -968,7 +970,7 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
                 reason = M("reason_marked")
             print(f"  {_pad(r['dir'],40)}（{reason}）")
 
-    # 影响预览（调研护栏 #4，§7 唯一 ⚠️ 项）：关闭某技能将断掉哪些链路——结构化逐条映射
+    # 影响预览（调研护栏 #4，§7 ⚠️ 项）：关闭某技能将断掉哪些链路——结构化逐条映射
     locked = [r for r in rows if r.get("referenced_by")]
     if locked:
         print()
