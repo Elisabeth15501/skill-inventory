@@ -141,7 +141,7 @@ Pure local static analysis — no network, no subprocesses (sandbox red-line com
   consent-gated write capability — `--overrides --apply --yes` (auto-backup, dry-run without --yes,
   rejected on non-closable platforms) — which every report and --overrides output states explicitly.
 - **无持久化机制 / No persistence mechanisms**：不注册定时任务 / cron、不写启动项、不留守护进程、
-  不自我修改、不生成自有状态文件。唯一跨会话效果是你显式授权写入的 `skillOverrides` off 项，
+  不自我修改、不生成自有状态文件。跨会话效果仅一处——你显式授权写入的 `skillOverrides` off 项，
   随时可在宿主 `/skills` 菜单恢复——这是公开披露的功能本身，不是持久化驻留。
   No cron jobs, no startup scripts, no daemons, no self-modification, no state files of its own.
   The only cross-session effect is the user-consented `off` entries in `skillOverrides`,

@@ -56,7 +56,7 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
    每份报告和 `--overrides` 输出都会显式标注这条写路径——本工具**不会**静默或自行关闭任何技能。
    优先引导宿主自带开关（如 `/skills` 菜单，按 Esc 才落盘）。
 3. **无持久化机制。** 不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改、不生成自有
-   状态文件。唯一跨会话效果是你显式授权写入的 `skillOverrides` off 项，随时可在宿主 `/skills`
+   状态文件。跨会话效果仅一处——你显式授权写入的 `skillOverrides` off 项，随时可在宿主 `/skills`
    菜单恢复——这是公开披露的功能本身，不是持久化驻留。
 4. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
