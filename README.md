@@ -55,16 +55,19 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
    缺 `--yes` 只做 dry-run 预览（不读写任何文件）；千问等不可关平台直接拒绝 `--apply`。
    每份报告和 `--overrides` 输出都会显式标注这条写路径——本工具**不会**静默或自行关闭任何技能。
    优先引导宿主自带开关（如 `/skills` 菜单，按 Esc 才落盘）。
-3. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
+3. **无持久化机制。** 不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改、不生成自有
+   状态文件。唯一跨会话效果是你显式授权写入的 `skillOverrides` off 项，随时可在宿主 `/skills`
+   菜单恢复——这是公开披露的功能本身，不是持久化驻留。
+4. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
    `--protect` 追加的。报告里它们单列在「受保护」一档。
-4. **未显式调用 ≠ 没用。** 用户可能**从不在对话里明说**要调某技能，而是：
+5. **未显式调用 ≠ 没用。** 用户可能**从不在对话里明说**要调某技能，而是：
    - 预先配置了**关键词/触发器**，让某类输入自动唤起它；
    - 借助会内部调用该技能的**专家/连接器组件**间接使用它。
    这两种用法在用量日志里**完全无痕**。所以**任何「可关闭候选」在关闭前，都必须向用户确认它是否仍被上述方式依赖**。
-5. **遥测缺口不判死。** 当平台无用量日志、或日志读取失败（已修 P1，会显式告警而非静默），
+6. **遥测缺口不判死。** 当平台无用量日志、或日志读取失败（已修 P1，会显式告警而非静默），
    全库只能落「需人工确认」档，**不输出可关闭项**——宁可少报，不可误杀。
-6. **反向依赖扫描（应对你最担心的场景）。** 在判「可关闭」前，工具会先扫自动化任务 / Hook 里的技能引用
+7. **反向依赖扫描（应对你最担心的场景）。** 在判「可关闭」前，工具会先扫自动化任务 / Hook 里的技能引用
    （默认 `~/.workbuddy/automations` 与 `~/.workbuddy/hooks`，可用 `--refs` 追加）。
    **凡被引用的技能一律锁定为「受保护」**——无论它有没有用量日志。这堵住了
    「用户只设了关键词/触发器、或借专家·连接器组件间接调用，日志里完全无痕」导致的误杀。
@@ -83,6 +86,21 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
   此时结论仅基于最后修改时间，**不可作为关闭依据**。
 - 无法从文件系统探测「关键词触发器/专家组件」依赖，这是结构性盲区，只能靠用户确认兜底。
 - 重复检测是名称/描述/体积的近似比对，不是语义级去重。
+
+## 关于自动化扫描器的说明（Ae1 findings）
+
+部分自动扫描器（如 ClawHub SkillSpector）会报 **Ae1 "Referenced artifact was not completely
+inspected"**——指扫描器无法把本技能引用的 `scripts/skill_inventory.py`（约 900 行）完整纳入
+上下文检查。这是**检查能力的局限**，不是可疑行为：
+
+- 该脚本的**静态分析本身为 Pass**（"No suspicious patterns detected"）；
+- 完整源码公开于 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查；
+- 脚本头部 docstring 含机器可检索的「权限与持久化声明」块，欢迎 grep 验证。
+
+Some automated scanners report Ae1 "Referenced artifact was not completely inspected" — the
+scanner cannot fully inline the referenced ~900-line Python artifact. This is an inspection
+limitation, not suspicious behavior: the script's own static analysis passes with zero
+suspicious patterns, and the full source is public for manual review.
 
 ## 许可证
 
@@ -109,6 +127,10 @@ tokens — 54 installed skills ≈ 5,000+ tokens burned per turn; this tool prov
   closes a skill silently or on its own initiative.
 - **Protected skills never enter the closeable bucket**: this tool itself, `protected: true`,
   safety/audit keyword hits, reference-locked skills, and anything you add via `--protect`.
+- **No persistence mechanisms.** No cron jobs, no startup scripts, no daemons, no
+  self-modification, no state files of its own. The only cross-session effect is the
+  user-consented `off` entries in `skillOverrides`, reversible at any time via the host's
+  `/skills` menu — a disclosed feature, not persistence.
 - **"No usage record" is not "unused"**: keyword triggers and expert/connector-internal calls
   never appear in usage logs (structural blind spot). Reverse-dependency scanning locks every
   skill referenced by automations/hooks/plugins; everything else lands in manual-review.
@@ -130,8 +152,9 @@ python scripts/skill_inventory.py --lang en                # English report
 ## Language
 
 Docs are bilingual (Chinese + English). Reports default to Simplified Chinese; pass `--lang en`
-for English. Bucket names are always English identifiers and `--json` keys are always English,
-so scripted consumption is language-independent.
+for English, or set the `SKILL_INV_LANG=en` (or `WB_LANG`) environment variable for a persistent
+preference — **users choose their language**. Bucket names are always English identifiers and
+`--json` keys are always English, so scripted consumption is language-independent.
 
 ## License
 

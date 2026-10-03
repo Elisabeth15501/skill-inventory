@@ -9,7 +9,16 @@
     python skill_inventory.py --json               # 机器可读
     python skill_inventory.py --overrides          # 起草可关闭清单（草稿，需人工确认）
     python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
-    python skill_inventory.py --lang en            # English report (default: zh)
+    python skill_inventory.py --lang en            # English report (default: zh; or set env SKILL_INV_LANG=en)
+
+权限与持久化声明 / Permission & persistence declaration
+------------------------------------------------------
+WRITE SCOPE: only ~/.workbuddy/settings.json -> key "skillOverrides", via --overrides --apply --yes
+(auto-backup first, dry-run without --yes). Everything else is read-only.
+PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification, no state
+files of its own. The only cross-session effect is the consented "off" entries in skillOverrides,
+which are reversible at any time via the host's /skills menu.
+NETWORK: none. SUBPROCESS: none.
 
 行为边界 / Behaviour contract
 ----------------------------
@@ -18,7 +27,6 @@ nothing unless you explicitly pass `--overrides --apply --yes` (WorkBuddy-family
 写路径仅限一处 / Single write path: `--apply --yes` merges "off" entries into ~/.workbuddy/settings.json
 `skillOverrides`, after automatically backing up the file; without `--yes` it is a dry-run preview.
 Platforms without a programmatic close channel (qwen / baidu / generic) reject --apply outright.
-    python skill_inventory.py --overrides --apply --yes   # 在你同意下，WB 写入 skillOverrides 关闭
 
 为什么需要它
 ------------
@@ -1075,8 +1083,11 @@ def main() -> int:
                     help="Impact preview for one skill (untruncated) 单技能影响深查")
     ap.add_argument("--no-ref-scan", action="store_true",
                     help="Disable reverse-dependency scanning (on by default) 关闭反向依赖扫描")
-    ap.add_argument("--lang", default="zh", choices=["zh", "en"],
-                    help="Report language (default: zh; JSON keys are always English) 报告语言")
+    _env_lang = os.environ.get("SKILL_INV_LANG") or os.environ.get("WB_LANG") or "zh"
+    _env_lang = _env_lang if _env_lang in ("zh", "en") else "zh"
+    ap.add_argument("--lang", default=_env_lang, choices=["zh", "en"],
+                    help="Report language (default: env SKILL_INV_LANG, else zh; JSON keys are "
+                         "always English) 报告语言（可用环境变量 SKILL_INV_LANG 固定偏好）")
     args = ap.parse_args()
 
     global LANG

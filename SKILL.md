@@ -20,8 +20,8 @@ description: >-
   无网络、无子进程。报告默认中文（--lang en 切英文）；--json 输出恒为英文键。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.1.0
-allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep
+version: 1.2.0
+allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json)
 metadata:
   openclaw:
     requires:
@@ -29,17 +29,26 @@ metadata:
     permissions:
       network: none
       subprocess: none
+      persistence: none
       filesystem:
         read: "skills directories, usage logs, automation/hook/routing/plugin configs"
-        write: "~/.workbuddy/settings.json skillOverrides only (requires --apply --yes, auto-backup first)"
+        write: >-
+          DECLARED STATE-CHANGING CAPABILITY: writes ONLY the "skillOverrides" key of
+          ~/.workbuddy/settings.json, consent-gated via --apply --yes, auto-backup first,
+          reversible via the host /skills menu. This capability can persistently disable the
+          listed skills and alter agent behavior — that is its disclosed purpose; it never
+          runs without explicit user confirmation.
 ---
 
 # skill-inventory · 办公型 Agent 通用的技能库盘点与效能体检
 
 > **Language / 语言**：本文档中英双语。报告输出默认简体中文，`--lang en` 切换英文；
+> 也可以设环境变量 `SKILL_INV_LANG=en`（或 `WB_LANG`）固定语言偏好——**用户可自由选择中文或英文**。
 > 四档分类恒用英文标识（used / protected / closeable / manual-review），`--json` 输出恒为英文键，
 > 程序化消费不受语言影响。
-> This document is bilingual. Reports default to Simplified Chinese; pass `--lang en` for English.
+> This document is bilingual. Reports default to Simplified Chinese; pass `--lang en` for English,
+> or set the `SKILL_INV_LANG=en` (or `WB_LANG`) environment variable for a persistent choice —
+> users may freely choose Chinese or English.
 > Bucket names are always English identifiers (used / protected / closeable / manual-review), and
 > `--json` output is always English-keyed, so programmatic consumption is language-independent.
 
@@ -131,6 +140,12 @@ Pure local static analysis — no network, no subprocesses (sandbox red-line com
   Read-only by default: no config writes, no disable/delete calls. It does have a single
   consent-gated write capability — `--overrides --apply --yes` (auto-backup, dry-run without --yes,
   rejected on non-closable platforms) — which every report and --overrides output states explicitly.
+- **无持久化机制 / No persistence mechanisms**：不注册定时任务 / cron、不写启动项、不留守护进程、
+  不自我修改、不生成自有状态文件。唯一跨会话效果是你显式授权写入的 `skillOverrides` off 项，
+  随时可在宿主 `/skills` 菜单恢复——这是公开披露的功能本身，不是持久化驻留。
+  No cron jobs, no startup scripts, no daemons, no self-modification, no state files of its own.
+  The only cross-session effect is the user-consented `off` entries in `skillOverrides`,
+  reversible at any time via the host's `/skills` menu — a disclosed feature, not persistence.
 - **未显式调用 ≠ 没用**：关键词触发器、专家/连接器组件的间接调用在用量日志里完全无痕——这是结构性盲区，靠反向依赖扫描 + 用户确认双层兜底。
 - **遥测缺口不判死**：无用量日志或日志读取失败时，全库落「需人工确认」，不输出可关闭项——宁可少报，不可误杀。
 - **受保护技能永不进候选**：本工具自身、`protected: true`、安全/审计类、被引用锁定、用户 `--protect` 追加。
@@ -197,6 +212,12 @@ Pure local static analysis: no network, no subprocesses.
 - **Permission scope**: reads skill directories, usage logs and automation/hook/routing/plugin
   configs; writes only `~/.workbuddy/settings.json` (`skillOverrides` key, via the path above);
   no network; no subprocesses.
+- **No persistence mechanisms.** No cron jobs, no startup scripts, no daemons, no
+  self-modification, no state files of its own. The only cross-session effect is the
+  user-consented `off` entries in `skillOverrides`, reversible at any time via the host's
+  `/skills` menu — a disclosed feature, not persistence.
+- **Language choice.** Reports default to Chinese; `--lang en` switches to English, or set
+  `SKILL_INV_LANG=en` for a persistent preference. Users choose their language.
 - **Telemetry gap ⇒ nothing is judged closeable**: without a usable usage log everything lands in
   manual-review. Under-reporting beats false kills.
 - **Protected skills never enter the closeable bucket**: this tool itself, `protected: true`

@@ -1,7 +1,22 @@
-# 多平台发布差异清单（skill-inventory）
+# 多平台发布差异清单 · Multi-platform publishing checklist（skill-inventory）
+
+> **Language / 语言**：本文档为维护者内部发布备忘，中英双语概要 + 中文细则。
+> This maintainer checklist is bilingual: an English TL;DR below, details in Chinese.
+> 报告与文档的用户可自选语言（`--lang en|zh` 或环境变量 `SKILL_INV_LANG`）/ end users choose
+> their report language via `--lang en|zh` or the `SKILL_INV_LANG` env var.
 
 > 本技能同时发布到 SkillHub 与 ClawHub，两平台规则相反，清理清单互不通用。
 > 每次发布前对照本清单执行，别凭记忆。
+
+## English TL;DR
+
+- Two publishing targets with **opposite rules**: SkillHub (slug `skill-inventory`, requires a
+  clean `git archive` copy with `.gitignore` / `LICENSE` / `.clawhubignore` / `references/.gitkeep`
+  removed) vs ClawHub (slug `agent-skill-inventory`, packages the workspace directly, honors
+  `.clawhubignore` which excludes `LICENSE` and `config.yaml`).
+- Keep `version` in SKILL.md frontmatter in sync with the `--version` flag of both CLIs.
+- **Pin the clawhub CLI version** (`npx clawhub@0.23.3`), never `@latest` — unpinned remote code
+  in a publishing workflow is a supply-chain risk (and is flagged by SkillSpector Rp1).
 
 ## 平台对照
 
@@ -24,11 +39,13 @@ skillhub publish "$PUB_TMP" --version X.Y.Z --changelog "..." --json
 # 成功标志：ok=true + reviewStatus/contentAuditStatus/securityScanStatus 均 pending
 
 # ClawHub（工作区直发）
-npx clawhub@latest skill publish . \
+# ⚠️ 钉版本，不用 @latest（未钉版=发布链路里执行未审远程代码，SkillSpector Rp1 会抓）。
+#    升级前先 `npm view clawhub version` 核对目标版本再手动改。
+npx clawhub@0.23.3 skill publish . \
   --slug agent-skill-inventory --name "技能盘点与效能体检" --version X.Y.Z \
   --topics "..." --source-repo Elisabeth15501/skill-inventory \
   --source-commit "$(git rev-parse HEAD)" --changelog "..."
-# 成功后 npx clawhub@latest inspect agent-skill-inventory 看 Moderate 是否 CLEAN
+# 成功后 npx clawhub@0.23.3 inspect agent-skill-inventory 看 Moderate 是否 CLEAN
 ```
 
 ## 注意事项
