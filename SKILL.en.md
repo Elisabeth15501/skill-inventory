@@ -53,11 +53,13 @@ inventories and assesses skill libraries.
 **Permission scope** (mirrors the machine-readable declaration in the script docstring):
 
 - **Read**: skills directories, usage logs, automation/hook/routing/plugin configs
-- **Write** (exactly two paths, both requiring explicit consent):
+- **Write** (two target paths + one backup artifact, all requiring explicit consent):
   1. the `skillOverrides` key of `~/.workbuddy/settings.json` — only via your explicit
-     `--apply --yes` (auto-backup first);
+     `--apply --yes`;
   2. the language preference file `~/.workbuddy/skill-inventory.json` — only via your
-     explicit `--set-lang`.
+     explicit `--set-lang`;
+  3. backup artifact — while `--apply --yes` runs, a `settings.json.bak.<timestamp>` safety copy
+     is created beside `settings.json` (inert copy, path printed to you, never read back).
 - **Network**: none. **Subprocess**: none.
 
 Pure local static analysis — no network, no subprocesses (sandbox red-line compliant).
@@ -114,11 +116,12 @@ reverse-dependency scan roots.
 
 ## 8. Risk boundaries
 
-- **Read-only by default; two disclosed, consent-gated write paths**: no config writes and no
-  disable/delete calls unless you explicitly authorize one of the two capabilities —
-  `--overrides --apply --yes` (auto-backup, dry-run without `--yes`, rejected on non-closable
+- **Read-only by default; two disclosed, consent-gated write targets plus one backup artifact**:
+  no config writes and no disable/delete calls unless you explicitly authorize one of the two
+  capabilities — `--overrides --apply --yes` (dry-run without `--yes`, rejected on non-closable
   platforms) and `--set-lang` (writes the language preference file only). Both are labeled
-  explicitly in every report and output.
+  explicitly in every report and output, and the close write always produces a timestamped
+  `settings.json.bak.<ts>` safety copy first, whose path is printed so you can delete it.
 - **No persistence mechanisms**: no cron jobs, no startup scripts, no daemons, no
   self-modification. Cross-session effects are limited to two user-consented, disclosed and
   reversible writes — the `off` entries in `skillOverrides` (reversible via the host's `/skills`

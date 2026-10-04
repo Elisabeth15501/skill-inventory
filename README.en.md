@@ -76,7 +76,7 @@ never get close actions**, only a report plus manual-removal instructions:
 
 ## 🔒 Behaviour contract (read this before trusting it)
 
-**Read-only by default; exactly two write paths, both consent-gated:**
+**Read-only by default; two write targets + one backup artifact, both consent-gated:**
 
 1. **Writes nothing by default.** Inventory, classification and advice are read-only; no
    disable/delete API is called.
@@ -87,6 +87,9 @@ never get close actions**, only a report plus manual-removal instructions:
    reject `--apply` outright. Every report and `--overrides` output states this path explicitly —
    the tool **never** closes a skill silently or on its own initiative. Host-native toggles
    (e.g. the `/skills` menu, press Esc to persist) are preferred.
+   **Backup artifact:** before the close write, `--apply --yes` creates a
+   `settings.json.bak.<timestamp>` safety copy beside `settings.json` and prints its path; the
+   copy is inert, never read back, and you can delete it at any time.
 3. **Write path 2 (language preference; needs your explicit command).** `--set-lang auto|zh|en`
    writes the report language preference to `~/.workbuddy/skill-inventory.json` (that one key
    only); a user-controlled display preference, revertible via `--set-lang auto` or by deleting
@@ -136,17 +139,27 @@ never get close actions**, only a report plus manual-removal instructions:
   structural blind spot covered only by user confirmation.
 - Duplicate detection is approximate (name/description/size), not semantic dedup.
 
-## About automated scanners (Ae1 findings)
+## About automated scanners (SkillSpector findings and item-by-item response)
 
-Some automated scanners (e.g. ClawHub SkillSpector) report **Ae1 "Referenced artifact was not
-completely inspected"** — the scanner cannot fully inline the referenced ~900-line
-`scripts/skill_inventory.py`. This is an **inspection limitation**, not suspicious behavior:
+Some automated scanners (e.g. ClawHub SkillSpector) report findings against this skill. Most are
+**inspection limitations** or **restatements of already-disclosed capability**, not suspicious
+behavior. The table below gives verifiable facts for each (line counts measured on v1.3.1):
 
-- the script's own **static analysis passes** ("No suspicious patterns detected");
-- the full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory)
-  for manual review at any time;
-- the script docstring carries a machine-greppable "Permission & persistence declaration" block —
-  feel free to verify with grep.
+| Rule | What the scanner says | Facts / response |
+|---|---|---|
+| **Ae1** referenced artifact not completely inspected | The scanner cannot fully inline `scripts/skill_inventory.py` | **Inspection limitation.** That script measures 1293 lines on v1.3.1 and has zero third-party dependencies (standard library only; `yaml` is an optional accelerator). The file's own **static-analysis layer passes** ("No suspicious patterns detected"). Full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory) for manual review at any time. The finding count grows with the script's line count (7→11→12) — it tracks code size, not behavior change |
+| **Lp1** capability broader than declared | The script writes to disk; capability exceeds the declaration | The declaration is now complete — **two write targets + one backup artifact**, all greppable in the frontmatter `permissions` block and the script's docstring header: ① the `skillOverrides` key of `settings.json` — requires the two explicit flags `--apply --yes` (either alone = dry-run); ② the language preference file — requires an explicit `--set-lang`; ③ a `settings.json.bak.<ts>` safety copy — created only before step ①'s write, path printed in the output, never read back. See the behaviour contract above |
+| **Session Persistence** | Cross-session state detected | No cron jobs, no startup scripts, no daemons, no self-modification. The language preference file is a display preference (a single JSON key): nothing is scheduled or registered from it, it is read once to pick the next report language; `--set-lang auto` or deleting it restores the default |
+| **Anti-Refusal** | "always / always" style wording in the docs | Rewritten to "report language pinned to X (change any time)" — it describes the **tool's output language**, not an obedience promise toward the user |
+| **Rp1** | Unpinned dependency in the supply chain | The skill has no external runtime dependency (Python standard library); publishing commands in the docs are pinned to `clawhub@0.23.3`, never `@latest` |
+| **NL Policy** | Language selection | Three options auto / zh / en. `auto` is the **fallback for users who have not expressed a preference**, not a lock-in: pin zh or en via `--set-lang` any time, or override per run with `--lang` |
+
+**Platform-side result**: static analysis and human review both report **Moderate CLEAN**; the
+scanner's own Overview states "disclosed, user-triggered… no evidence of hidden network,
+persistence, or destructive behavior". The script also carries a machine-greppable
+"Permission & persistence declaration" block in its docstring header — feel free to verify it
+directly. If you find any mismatch between the declarations and the implementation, please open
+an issue first — that fixes a problem faster than any scanner verdict.
 
 ## License
 

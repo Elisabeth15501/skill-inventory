@@ -15,12 +15,15 @@
 
 权限与持久化声明 / Permission & persistence declaration
 ------------------------------------------------------
-WRITE SCOPE: exactly two paths, both disclosed here:
+WRITE SCOPE: two target paths + one disclosed backup artifact, all declared here:
   1. ~/.workbuddy/settings.json -> key "skillOverrides", via --overrides --apply --yes
-     (auto-backup first, dry-run without --yes);
+     (dry-run without --yes; see the backup artifact below);
   2. ~/.workbuddy/skill-inventory.json -> report language preference {"language": "auto|zh|en"},
      written only when the user explicitly runs --set-lang (a display preference; revert via
      --set-lang auto or by deleting the file).
+  3. BACKUP ARTIFACT (safety copy, not a config change): while --apply --yes runs, one timestamped
+     copy ~/.workbuddy/settings.json.bak.<YYYYMMDD-HHMMSS> is created beside settings.json before
+     it is modified; its path is printed to the user, it is inert, and it is never read back.
 Everything else is read-only.
 PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification.
 The language preference file is a display preference only (a single JSON key): nothing is
@@ -64,13 +67,15 @@ preference to ~/.workbuddy/skill-inventory.json (user-controlled display prefere
 ------------------------------
   1. 受保护技能（见 PROTECTED_LEAVES / frontmatter `protected: true` / 安全关键词启发式）
      永不进入「可关闭」候选，单独列出「需人工介入才能关闭」。
-  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。写路径共两处、均需
-     显式授权：`--overrides --apply --yes`（仅 WorkBuddy 等可关平台）：先自动备份 settings.json，
+  2. 默认只读 / Read-only by default：盘点、分类、建议全程不写任何文件。写路径两处目标 + 一份备份
+     工件、均需显式授权：`--overrides --apply --yes`（仅 WorkBuddy 等可关平台）：先自动备份 settings.json，
      再把候选合并进 skillOverrides；缺 `--yes` 时只做 dry-run 预览，不读写任何文件；
      `--set-lang` 仅写 ~/.workbuddy/skill-inventory.json 语言偏好（改回 auto 或删文件即还原）。
-     / Read-only by default: two disclosed, consent-gated write paths — `--overrides --apply
-     --yes` (can_close platforms only, backup first, dry-run without --yes) and `--set-lang`
-     (writes the language preference file only; revert via --set-lang auto or file deletion).
+     / Read-only by default: two consent-gated write targets plus one backup artifact —
+     `--overrides --apply --yes` (can_close platforms only, backup first, dry-run without --yes),
+     `--set-lang` (writes the language preference file only; revert via --set-lang auto or file
+     deletion), and the timestamped settings.json.bak.<ts> safety copy created beside settings.json
+     before the write, whose path is printed to the user.
   3. 遥测缺口降级：当平台无用量日志 / 日志读取失败时，**全库不判为可关闭**，
      只给「需人工确认」档，并显式告警「无法确认冷技能」。
   4. 反向依赖扫描：判「可关闭」前，先扫自动化 / Hook / 专家·连接器 / 子 agent 的定义文件，

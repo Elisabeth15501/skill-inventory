@@ -69,7 +69,7 @@ python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改
 
 ## 🔒 行为契约（先读这段再信任它）
 
-**默认只读，写路径共两处、均需显式授权：**
+**默认只读，写路径两处目标 + 一份备份工件、均需显式授权：**
 
 1. **默认不写任何文件。** 盘点、分类、建议全程只读；不调用任何禁用/删除接口。
 2. **写路径一（关闭，需你显式授权）。** 在 WorkBuddy 等可关平台上，`--overrides --apply --yes`
@@ -77,6 +77,8 @@ python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改
    缺 `--yes` 只做 dry-run 预览（不读写任何文件）；千问等不可关平台直接拒绝 `--apply`。
    每份报告和 `--overrides` 输出都会显式标注这条写路径——本工具**不会**静默或自行关闭任何技能。
    优先引导宿主自带开关（如 `/skills` 菜单，按 Esc 才落盘）。
+   **备份工件**：`--apply --yes` 落笔前在 `settings.json` 旁生成 `settings.json.bak.<时间戳>`
+   安全副本，路径打印在输出里；副本惰性、不会被回读，可随时自行删除。
 3. **写路径二（语言偏好，需你显式触发）。** `--set-lang auto|zh|en` 把报告语言偏好写入
    `~/.workbuddy/skill-inventory.json`（仅此一个键）；这是一项用户可控的显示偏好，
    `--set-lang auto` 或删除该文件即恢复默认。
@@ -114,15 +116,24 @@ python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改
 - 无法从文件系统探测「关键词触发器/专家组件」依赖，这是结构性盲区，只能靠用户确认兜底。
 - 重复检测是名称/描述/体积的近似比对，不是语义级去重。
 
-## 关于自动化扫描器的说明（Ae1 findings）
+## 关于自动化扫描器的说明（SkillSpector findings 与逐条回应）
 
-部分自动扫描器（如 ClawHub SkillSpector）会报 **Ae1 "Referenced artifact was not completely
-inspected"**——指扫描器无法把本技能引用的 `scripts/skill_inventory.py`（约 900 行）完整纳入
-上下文检查。这是**检查能力的局限**，不是可疑行为：
+部分自动扫描器（如 ClawHub SkillSpector）会对本技能报出若干条 findings。绝大多数属于**检查局限**
+或**对已披露能力的重复提示**，不是可疑行为。下表逐条给出可核对的事实依据（行数为 v1.3.1 实测）：
 
-- 该脚本的**静态分析本身为 Pass**（"No suspicious patterns detected"）；
-- 完整源码公开于 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查；
-- 脚本头部 docstring 含机器可检索的「权限与持久化声明」块，欢迎 grep 验证。
+| 规则 | 扫描器的说法 | 事实依据与回应 |
+|---|---|---|
+| **Ae1** 引用的工件未被完整检查 | 无法把 `scripts/skill_inventory.py` 完整纳入上下文检查 | **检查能力局限**。该脚本 v1.3.1 实测 1293 行，零第三方依赖（仅标准库，`yaml` 为可选加速项）。同一文件的**静态分析层结论为 Pass**（"No suspicious patterns detected"）。完整源码公开在 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查。findings 条数随脚本行数增长（7→11→12），与代码量正相关，不反映行为变化 |
+| **Lp1** 能力宽于声明 | 脚本会写盘，能力范围超出声明 | 声明已补全为**两处写目标 + 一份备份工件**（frontmatter `permissions` 与脚本头部声明块均可 grep 验证）：① `settings.json` 的 `skillOverrides` 键——需 `--apply --yes` 双显式 flag，缺一即 dry-run；② 语言偏好文件——需显式 `--set-lang`；③ `settings.json.bak.<ts>` 安全副本——仅在第①步落笔前生成，路径打印在输出里，从不回读。逐条见上方「行为契约」 |
+| **Session Persistence** | 存在跨会话驻留 | 无 cron / 启动项 / 守护进程 / 自我修改。语言偏好文件是显示偏好（单个 JSON 键），不基于它注册或排程任何东西，仅在下次运行时被读取一次；`--set-lang auto` 或删文件即恢复默认 |
+| **Anti-Refusal** | 文档出现「always / 始终」类措辞 | 已改为「报告语言固定为 X（随时可改回）」——描述的是**工具输出语言**，不构成对用户的服从承诺 |
+| **Rp1** | 供应链存在未钉版依赖 | 技能运行零外部依赖（Python 标准库）；文档中的发布命令已钉 `clawhub@0.23.3`，不用 `@latest` |
+| **NL Policy** | 语言选择 | 三选项 auto / zh / en。auto 是**用户未表达偏好时的回落**，不是锁定：随时 `--set-lang` 固定，或 `--lang` 单次覆盖 |
+
+**平台侧结论**：静态分析 + 人工复核均为 **Moderate CLEAN**；扫描器 Overview 自述
+"disclosed, user-triggered… no evidence of hidden network, persistence, or destructive behavior"。
+脚本头部另有一块机器可 grep 的「权限与持久化声明」，欢迎直接验证。若你发现声明与实现不符，
+请优先回报 issue——这比任何扫描器判定都更快地修正问题。
 
 ## 许可证
 

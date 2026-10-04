@@ -7,22 +7,26 @@ description: >-
   Office-agent skill inventory & health check. Scans any skills directory, measures size and
   context-token footprint, detects duplicates, and classifies skills into used / protected /
   closeable / manual-review buckets. Reverse-dependency scanning locks every skill referenced by
-  automations, hooks or plugins. Read-only by default: two disclosed, consent-gated write paths —
-  `--overrides --apply --yes` (programmatic close on platforms like WorkBuddy; auto-backup first,
-  dry-run without --yes) and `--set-lang` (saves the report language preference to
-  ~/.workbuddy/skill-inventory.json). Report language: auto (default; the Agent decides per
+  automations, hooks or plugins. Read-only by default: two disclosed, consent-gated write targets —
+  `--overrides --apply --yes` (programmatic close on platforms like WorkBuddy; dry-run without
+  --yes) and `--set-lang` (saves the report language preference to
+  ~/.workbuddy/skill-inventory.json) — plus one disclosed backup artifact: a timestamped
+  ~/.workbuddy/settings.json.bak.<ts> safety copy created before the close write, path printed to
+  the user. Report language: auto (default; the Agent decides per
   conversation language) / zh / en; one-off override via --lang; JSON output is always
   English-keyed. No network access, no subprocesses. English docs: SKILL.en.md.
   办公型 Agent 通用的技能库盘点与效能体检。扫描任意技能目录，统计数量/体积/上下文 token 占用，
   识别重复与近似技能，并按「有使用记录/受保护/可关闭候选/需人工确认」四档给出保守建议；反向依赖
-  扫描会锁定被自动化/Hook/插件引用的技能。默认只读，写路径共两处且均需显式授权：`--overrides
-  --apply --yes`（仅 WorkBuddy 等可关平台，先自动备份，缺 --yes 只做预览）与 `--set-lang`（把报告
-  语言偏好写入 ~/.workbuddy/skill-inventory.json）。语言设置三选一：auto（默认，Agent 按对话语言
+  扫描会锁定被自动化/Hook/插件引用的技能。默认只读，两处写路径目标均需显式授权：`--overrides
+  --apply --yes`（仅 WorkBuddy 等可关平台，缺 --yes 只做预览）与 `--set-lang`（把报告
+  语言偏好写入 ~/.workbuddy/skill-inventory.json）；另有一份已披露的备份工件——关闭写入前在
+  settings.json 旁生成带时间戳的 settings.json.bak.<ts> 安全副本，路径会打印给用户。语言设置三选一：
+  auto（默认，Agent 按对话语言
   决定）/ zh / en；--lang 仅本次运行覆盖；--json 输出恒为英文键。无网络、无子进程。
   英文文档见 SKILL.en.md。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.3.1
+version: 1.3.2
 allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json), Write(~/.workbuddy/skill-inventory.json), Edit(~/.workbuddy/skill-inventory.json)
 metadata:
   openclaw:
@@ -35,9 +39,9 @@ metadata:
       filesystem:
         read: "skills directories, usage logs, automation/hook/routing/plugin configs"
         write: >-
-          DECLARED STATE-CHANGING CAPABILITIES, both consent-gated and disclosed:
+          DECLARED STATE-CHANGING CAPABILITIES, all consent-gated and disclosed:
           (1) writes ONLY the "skillOverrides" key of ~/.workbuddy/settings.json via
-          --overrides --apply --yes, auto-backup first, reversible via the host /skills menu.
+          --overrides --apply --yes, reversible via the host /skills menu.
           This can persistently disable the listed skills and alter agent behavior — that is
           its disclosed purpose; it never runs without explicit user confirmation.
           (2) writes ONLY the report language preference file ~/.workbuddy/skill-inventory.json
@@ -45,6 +49,9 @@ metadata:
           display preference: not loaded automatically at startup, nothing scheduled or
           registered from it, reversible via --set-lang auto or by deleting the file;
           not a persistence mechanism.
+          (3) creates ONE disclosed backup artifact during --apply --yes: a timestamped copy
+          ~/.workbuddy/settings.json.bak.<YYYYMMDD-HHMMSS> written beside settings.json before
+          it is modified (inert safety copy; its path is printed to the user; never read back).
 ---
 
 # skill-inventory · 办公型 Agent 通用的技能库盘点与效能体检
@@ -95,9 +102,10 @@ metadata:
 **权限边界**（与脚本头部的机器可读声明一致）：
 
 - **读取**：技能目录、用量日志、自动化/Hook/路由/插件配置
-- **写入**（共两处，均需显式授权）：
+- **写入**（两处目标 + 一份备份工件，均需显式授权）：
   1. `~/.workbuddy/settings.json` 的 `skillOverrides` 键——仅当你显式传 `--apply --yes`（写前自动备份）；
-  2. `~/.workbuddy/skill-inventory.json` 的语言偏好——仅当你显式传 `--set-lang`。
+  2. `~/.workbuddy/skill-inventory.json` 的语言偏好——仅当你显式传 `--set-lang`；
+  3. 备份工件——执行 `--apply --yes` 时，在 `settings.json` 旁生成 `settings.json.bak.<时间戳>` 安全副本（惰性副本、路径打印给你、不会被回读）。
 - **网络**：无　**子进程**：无
 
 纯本地静态分析，零网络依赖、零子进程（沙箱红线天然合规）。
@@ -148,9 +156,10 @@ metadata:
 
 ## 8. 风险边界
 
-- **默认只读，写路径共两处且均受控**：本工具默认不写任何宿主配置、不调用任何禁用/删除接口。
-  它具备两项受控写能力，均需显式授权并在输出中标注：`--overrides --apply --yes`（先备份、
-  缺 `--yes` 即 dry-run、不可关平台拒绝）与 `--set-lang`（只写语言偏好文件）。
+- **默认只读，写路径两处目标 + 一份备份工件、均受控**：本工具默认不写任何宿主配置、不调用任何禁用/删除接口。
+  它具备两项受控写能力，均需显式授权并在输出中标注：`--overrides --apply --yes`（缺
+  `--yes` 即 dry-run、不可关平台拒绝）与 `--set-lang`（只写语言偏好文件）；此外 `--apply --yes`
+  落笔前必先生成 settings.json 备份副本（路径打印在输出里，可自行删除）。
 - **无持久化机制**：不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改。
   跨会话效果仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
   （可在宿主 `/skills` 菜单恢复）与语言偏好文件。语言偏好文件只是显示偏好（单个 JSON 键）：
