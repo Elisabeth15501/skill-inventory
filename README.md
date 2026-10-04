@@ -41,8 +41,8 @@ python scripts/skill_inventory.py --protect a,b,c          # 追加受保护技�
 | 选项 | 说明 |
 |------|------|
 | `auto`（默认） | 自动——Agent 按当前对话语言传 `--lang` 决定；未传参时回落：环境变量 `SKILL_INV_LANG` → 系统区域语言 → 中文 |
-| `zh` | 始终使用中文回复 |
-| `en` | 始终使用英文回复 |
+| `zh` | 报告语言固定为中文（随时可用 `--set-lang` / `--lang` 改回） |
+| `en` | 报告语言固定为英文（随时可用 `--set-lang` / `--lang` 改回） |
 
 ```bash
 python scripts/skill_inventory.py --show-lang   # 查看当前设置、选项说明与切换方式
@@ -82,7 +82,9 @@ python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改
    `--set-lang auto` 或删除该文件即恢复默认。
 4. **无持久化机制。** 不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改。
    跨会话效果仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
-   （可在宿主 `/skills` 菜单恢复）与语言偏好文件（`--set-lang auto` 或删文件即恢复）。
+   （可在宿主 `/skills` 菜单恢复）与语言偏好文件。语言偏好文件只是显示偏好（单个 JSON 键）：
+   不基于它注册或排程任何东西，仅在下一次运行时被读取用来挑报告语言；`--set-lang auto`
+   或删除该文件即恢复默认——它不属于驻留机制。
 5. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
    `--protect` 追加的。报告里它们单列在「受保护」一档。

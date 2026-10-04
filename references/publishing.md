@@ -14,7 +14,7 @@
 |---|---|---|
 | slug | `skill-inventory`（命名空间隔离 `@user_c5278a31/…`） | `agent-skill-inventory`（**全局唯一**，原名已被占） |
 | 打包方式 | `git archive HEAD` 导出干净副本（自动排除 ignored） | 直接对工作区打包（CLI 自动跳点号路径段 + 读 `.gitignore`/`.clawhubignore`） |
-| 发布前必删 | `.gitignore`、`LICENSE`、`.clawhubignore`、`references/.gitkeep`（封禁清单动态，报错写哪个删哪个） | 无需手删（`LICENSE` 走 `.clawhubignore`；点号文件自动排除） |
+| 发布前必删 | `.gitignore`、`LICENSE`、`.clawhubignore`、`references/.gitkeep`、`config.yaml`（天禧内部留档，含中文注释）、四个维护者文档 `references/publishing*.md` + `references/usage-triggers*.md`（封禁清单动态，报错写哪个删哪个） | 无需手删（`LICENSE` / `config.yaml` / 维护者文档走 `.clawhubignore`；点号文件自动排除） |
 | 审核机制 | 三线并行（内容合规关键词 + 漏洞扫描 + AI 语义） | 安全扫描三层（静态 + VirusTotal + LLM），不挑关键词 |
 | 许可证 | 无强制 | **强制 MIT-0**，仓库 MIT LICENSE 与之冲突故排除 |
 | 版本号 | SKILL.md frontmatter `version` | `--version` 显式传，与 frontmatter 保持一致 |
@@ -24,7 +24,9 @@
 ```bash
 # SkillHub（干净副本流程）
 git archive HEAD | tar -x -C "$PUB_TMP" && cd "$PUB_TMP"
-rm -f .gitignore LICENSE .clawhubignore references/.gitkeep
+rm -f .gitignore LICENSE .clawhubignore references/.gitkeep config.yaml \
+      references/publishing.md references/publishing.en.md \
+      references/usage-triggers.md references/usage-triggers.en.md
 skillhub publish "$PUB_TMP" --version X.Y.Z --changelog "..." --json
 # 成功标志：ok=true + reviewStatus/contentAuditStatus/securityScanStatus 均 pending
 
@@ -46,4 +48,5 @@ npx clawhub@0.23.3 skill publish . \
   表述写法用「仅限」「共两处」「仅一处」等限定式措辞替代。
 - SkillHub v1.0.0 发布响应曾返回 `source: "clawhub"`（个人发布预期为 `community`）——v1.1.0/v1.2.0 均正确返回 `community`，判断为首发瞬时问题；若再现再联系平台（skillhub@tencent.com / GitHub issues）。
 - ClawHub 的 `--categories` 首次发布不传（未知 slug 会失败），发布后到网页端设置页改分类。
-- 英文文档（`SKILL.en.md` / `README.en.md` / `references/*.en.md`）随包发布无碍——两个平台都只把 `SKILL.md` 当主文档解析。
+- **维护者文档不随包分发**（v1.3.1 起，两平台一致）：`publishing*.md` 含 `skillhub publish` / `clawhub publish` 命令，随包分发会触发 SkillSpector 的 Description-Behavior Mismatch（98%）与 Context-Inappropriate Capability（92%）——SkillHub 靠发布前 rm 清单，ClawHub 靠 `.clawhubignore`；仓库保留。`usage-triggers*.md` 同理撤出（触发词已在 SKILL.md §1 覆盖）。
+- 面向用户的英文文档（`SKILL.en.md` / `README.en.md`）随包发布无碍——两个平台都只把 `SKILL.md` 当主文档解析。

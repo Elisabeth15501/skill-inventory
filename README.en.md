@@ -45,8 +45,8 @@ usage log, the tool degrades to "nothing judged closeable"**.
 | Option | Meaning |
 |--------|---------|
 | `auto` (default) | automatic — the Agent decides per conversation language via `--lang`; if unset, falls back to env `SKILL_INV_LANG` → system locale → Chinese |
-| `zh` | always respond in Chinese |
-| `en` | always respond in English |
+| `zh` | report language pinned to Chinese (change any time via `--set-lang` / `--lang`) |
+| `en` | report language pinned to English (change any time via `--set-lang` / `--lang`) |
 
 ```bash
 python scripts/skill_inventory.py --show-lang   # current setting, options and how to change
@@ -94,7 +94,10 @@ never get close actions**, only a report plus manual-removal instructions:
 4. **No persistence mechanisms.** No cron jobs, no startup scripts, no daemons, no
    self-modification. Cross-session effects are limited to two user-consented, disclosed and
    reversible writes — the `off` entries in `skillOverrides` (reversible via the host's `/skills`
-   menu) and the language preference file (revert via `--set-lang auto` or file deletion).
+   menu) and the language preference file. The language preference file is a display preference
+   only (a single JSON key): nothing is scheduled or registered from it, it is read solely to
+   pick the report language, and `--set-lang auto` or deleting the file restores the default —
+   it is not a persistence mechanism.
 5. **Protected skills never enter the closeable bucket.** This includes: this tool itself,
    skills marked `protected: true` in frontmatter, safety/audit classes (names containing
    security/audit/safe/guard/privacy/sanitize/compliance/backup), and anything added via

@@ -15,7 +15,7 @@
 |------|------------------------|----------------------|
 | slug | `skill-inventory` (namespaced `@user_c5278a31/…`) | `agent-skill-inventory` (**globally unique**; original name taken) |
 | Packaging | export a clean copy via `git archive HEAD` (ignored files excluded automatically) | package the workspace directly (CLI skips dotted path segments + reads `.gitignore`/`.clawhubignore`) |
-| Delete before publish | `.gitignore`, `LICENSE`, `.clawhubignore`, `references/.gitkeep` (banned list is dynamic; delete whatever the error names) | nothing manual (`LICENSE` via `.clawhubignore`; dotted files auto-excluded) |
+| Delete before publish | `.gitignore`, `LICENSE`, `.clawhubignore`, `references/.gitkeep`, `config.yaml` (Tianxi internal archive with Chinese comments), the four maintainer docs `references/publishing*.md` + `references/usage-triggers*.md` (banned list is dynamic; delete whatever the error names) | nothing manual (`LICENSE` / `config.yaml` / maintainer docs via `.clawhubignore`; dotted files auto-excluded) |
 | Review | three parallel lines (content-compliance keywords + vulnerability scan + AI semantics) | three-layer security scan (static + VirusTotal + LLM); no keyword policing |
 | License | not enforced | **MIT-0 mandatory**; the repo's MIT LICENSE conflicts, hence excluded |
 | Version | SKILL.md frontmatter `version` | `--version` flag, kept in sync with the frontmatter |
@@ -25,7 +25,9 @@
 ```bash
 # SkillHub (clean-copy flow)
 git archive HEAD | tar -x -C "$PUB_TMP" && cd "$PUB_TMP"
-rm -f .gitignore LICENSE .clawhubignore references/.gitkeep
+rm -f .gitignore LICENSE .clawhubignore references/.gitkeep config.yaml \
+      references/publishing.md references/publishing.en.md \
+      references/usage-triggers.md references/usage-triggers.en.md
 skillhub publish "$PUB_TMP" --version X.Y.Z --changelog "..." --json
 # Success: ok=true + reviewStatus/contentAuditStatus/securityScanStatus all pending
 
@@ -54,5 +56,10 @@ npx clawhub@0.23.3 skill publish . \
   recurs.
 - Do not pass `--categories` on a first ClawHub publish (unknown slugs fail); set categories on
   the web settings page afterwards.
-- English docs (`SKILL.en.md` / `README.en.md` / `references/*.en.md`) publish fine — both
-  platforms treat only `SKILL.md` as the primary document.
+- **Maintainer docs do not ship in the packages** (since v1.3.1, both platforms): `publishing*.md`
+  contains `skillhub publish` / `clawhub publish` commands — shipping them triggers SkillSpector's
+  Description-Behavior Mismatch (98%) and Context-Inappropriate Capability (92%) findings —
+  excluded via the SkillHub rm list and ClawHub's `.clawhubignore`; kept in the repo.
+  `usage-triggers*.md` is excluded for the same reason (triggers are already covered in SKILL.md §1).
+- User-facing English docs (`SKILL.en.md` / `README.en.md`) publish fine — both platforms treat
+  only `SKILL.md` as the primary document.

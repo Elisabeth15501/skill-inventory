@@ -4,3 +4,12 @@ LICENSE
 
 # 天禧适配留档（中文内部工作流注释），对 ClawHub 用户无价值且触发语言策略 → 排除
 config.yaml
+
+# 维护者文档不随包分发（SkillSpector v1.3.0 审计：DBM 98% / CIC 92% / SP 引用）：
+# publishing*.md 含发布命令（与「无网络纯本地」声明冲突）、usage-triggers*.md 供仓库归档。
+# 触发词已在 SKILL.md §1 覆盖，用户不需要这两对文档。
+references/publishing.md
+references/publishing.en.md
+references/usage-triggers.md
+references/usage-triggers.en.md
+

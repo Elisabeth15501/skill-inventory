@@ -23,9 +23,12 @@ WRITE SCOPE: exactly two paths, both disclosed here:
      --set-lang auto or by deleting the file).
 Everything else is read-only.
 PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification.
-Cross-session effects are limited to the two user-controlled writes above: the consented
-"off" entries in skillOverrides (reversible at any time via the host's /skills menu) and the
-language preference file (reversible via --set-lang auto or file deletion).
+The language preference file is a display preference only (a single JSON key): nothing is
+scheduled or registered from it, it is read solely to pick the report language on the next
+run, and --set-lang auto or deleting the file restores the default — it is not a persistence
+mechanism. Cross-session effects are limited to the two user-controlled writes above: the
+consented "off" entries in skillOverrides (reversible at any time via the host's /skills
+menu) and the language preference file (reversible via --set-lang auto or file deletion).
 NETWORK: none. SUBPROCESS: none.
 
 行为边界 / Behaviour contract
@@ -147,7 +150,7 @@ PLATFORMS = {
         "skills_root": None,          # 必须由 --root 指定
         "usage_log": None,            # 默认无遥测；可用 --usage-log 显式提供
         "usage_adapter": None,
-        "can_close": False,           # 未知宿主 → 绝不产出「可关闭」，全落「需人工确认」
+        "can_close": False,           # 未知宿主 → 不产出「可关闭」，全落「需人工确认」
         "close_kind": "none",
     },
 }
@@ -554,7 +557,7 @@ def scan_references(rows: list, ref_roots: list) -> dict:
 
     用户可能从不在对话里明说要调某 skill，而是被「关键词触发器 / 自动化任务 / Hook /
     专家·连接器组件」间接调用——这些在用量日志里**完全无痕**。直接扫描这些定义文件，
-    凡被引用即**锁定**，绝不作为「可关闭」候选。思路借鉴 Hermes skill-drift-check 的 pre-flight 校验。
+    凡被引用即**锁定**，不进入「可关闭」候选。思路借鉴 Hermes skill-drift-check 的 pre-flight 校验。
 
     返回（P0 影响预览结构化）：
         {skill_dir: [{"path": 完整路径, "kind": 来源类型, "terms": [命中的技能名, ...]}]}
@@ -617,7 +620,7 @@ def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
 
     🔒 P0 关键一：当 telemetry=False（无遥测/读取失败），cleanup 桶恒为空，
        所有无记录技能落入 review，并打「遥测缺口」标记。
-    🔒 能力感知关键二：当 can_close=False（平台不支持程序化关闭），**即使有遥测也绝不产出
+    🔒 能力感知关键二：当 can_close=False（平台不支持程序化关闭），**即使有遥测也不产出
        cleanup**——避免给用户在千问等平台上根本执行不了的「关闭建议」。
     """
     now = time.time()
@@ -636,7 +639,7 @@ def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
         if can_close and telemetry and not recent:
             buckets["cleanup"].append(r)
         else:
-            # 无遥测、或近期改过、或平台不可关 → 都只能算「需人工确认」，绝不自动判死
+            # 无遥测、或近期改过、或平台不可关 → 都只能算「需人工确认」，不自动判死
             buckets["review"].append(r)
     return buckets
 
@@ -787,8 +790,10 @@ S = {
     "lang_opts_hdr": ("可选值及说明 Options:", "Options:"),
     "lang_opt_auto": ("  auto  自动——Agent 按当前对话语言传 --lang 决定；未传参时依次回落：环境变量 SKILL_INV_LANG → 系统区域语言 → 中文",
                       "  auto  automatic — the Agent decides per conversation language via --lang; if unset, falls back to env SKILL_INV_LANG -> system locale -> Chinese"),
-    "lang_opt_zh": ("  zh    始终使用中文回复", "  zh    always respond in Chinese"),
-    "lang_opt_en": ("  en    始终使用英文回复", "  en    always respond in English"),
+    "lang_opt_zh": ("  zh    报告语言固定为中文（随时可用 --set-lang / --lang 改回）",
+                      "  zh    report language pinned to Chinese (change any time via --set-lang / --lang)"),
+    "lang_opt_en": ("  en    报告语言固定为英文（随时可用 --set-lang / --lang 改回）",
+                      "  en    report language pinned to English (change any time via --set-lang / --lang)"),
     "lang_change": ("切换方式 Change: --set-lang auto|zh|en（保存，立即生效）· --lang zh|en（仅本次运行覆盖）",
                     "Change it with: --set-lang auto|zh|en (saved, effective immediately) · --lang zh|en (this run only)"),
     "lang_json_note": ("注：--json 输出恒为英文键，不受语言设置影响。",

@@ -22,7 +22,7 @@ description: >-
   英文文档见 SKILL.en.md。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.3.0
+version: 1.3.1
 allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json), Write(~/.workbuddy/skill-inventory.json), Edit(~/.workbuddy/skill-inventory.json)
 metadata:
   openclaw:
@@ -42,13 +42,15 @@ metadata:
           its disclosed purpose; it never runs without explicit user confirmation.
           (2) writes ONLY the report language preference file ~/.workbuddy/skill-inventory.json
           ({"language": "auto|zh|en"}) via the explicit --set-lang flag — a user-controlled
-          display preference, reversible via --set-lang auto or by deleting the file.
+          display preference: not loaded automatically at startup, nothing scheduled or
+          registered from it, reversible via --set-lang auto or by deleting the file;
+          not a persistence mechanism.
 ---
 
 # skill-inventory · 办公型 Agent 通用的技能库盘点与效能体检
 
-> **English docs**：`SKILL.en.md`（本文件中文版）· `README.en.md` · `references/publishing.en.md` ·
-> `references/usage-triggers.en.md`。报告与文档语言均可由用户选择，见下方「语言设置」。
+> **English docs**：`SKILL.en.md`（本文件中文版）· `README.en.md`。报告与文档语言均可由用户选择，见下方「语言设置」。
+> 维护者文档（发布清单 / 触发词归档）保留在 GitHub 仓库的 `references/`，不随平台分发包分发。
 
 办公型 Agent（WorkBuddy、千问办公、百度搭子、天禧AI 等）装得多不等于能力强。
 技能清单（name + description）每一轮对话都进模型上下文——装 54 个技能约等于每轮白烧 5,000+ tokens。
@@ -70,8 +72,8 @@ metadata:
 | 选项 | 说明 |
 |------|------|
 | `auto`（默认） | 自动——Agent 按用户当前对话语言传 `--lang` 决定；未传参时依次回落：环境变量 `SKILL_INV_LANG` → 系统区域语言 → 中文 |
-| `zh` | 始终使用中文回复 |
-| `en` | 始终使用英文回复 |
+| `zh` | 报告语言固定为中文（随时可用 `--set-lang` / `--lang` 改回） |
+| `en` | 报告语言固定为英文（随时可用 `--set-lang` / `--lang` 改回） |
 
 - **查看**：`--show-lang` 打印当前设置、三个选项及说明、切换方式。
 - **保存**：`--set-lang auto|zh|en` 写入偏好文件 `~/.workbuddy/skill-inventory.json`（仅此一处，
@@ -151,7 +153,9 @@ metadata:
   缺 `--yes` 即 dry-run、不可关平台拒绝）与 `--set-lang`（只写语言偏好文件）。
 - **无持久化机制**：不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改。
   跨会话效果仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
-  （可在宿主 `/skills` 菜单恢复）与语言偏好文件（`--set-lang auto` 或删文件即恢复）。
+  （可在宿主 `/skills` 菜单恢复）与语言偏好文件。语言偏好文件只是显示偏好（单个 JSON 键）：
+  不基于它注册或排程任何东西，仅在下一次运行时被读取用来挑报告语言；`--set-lang auto`
+  或删除该文件即恢复默认——它不属于驻留机制。
 - **未显式调用 ≠ 没用**：关键词触发器、专家/连接器组件的间接调用在用量日志里完全无痕——这是结构性盲区，靠反向依赖扫描 + 用户确认双层兜底。
 - **遥测缺口不判死**：无用量日志或日志读取失败时，全库落「需人工确认」，不输出可关闭项——宁可少报，不可误杀。
 - **受保护技能永不进候选**：本工具自身、`protected: true`、安全/审计类、被引用锁定、用户 `--protect` 追加。

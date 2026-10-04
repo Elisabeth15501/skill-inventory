@@ -1,8 +1,9 @@
 # skill-inventory · Skill inventory & health check for office agents (English version)
 
-> **中文文档**：`SKILL.md`（this file is the English version）· `README.md` ·
-> `references/publishing.md` · `references/usage-triggers.md`。
+> **中文文档**：`SKILL.md`（this file is the English version）· `README.md`。
 > The report language is user-selectable — see "Language setting" below.
+> Maintainer-only notes (publishing checklist / usage-trigger archive) live in the GitHub
+> repo's `references/` and are not part of the distributed package.
 
 Office agents (WorkBuddy, QwenWork, Baidu DuMate, Tianxi AI, …) accumulate skills whose
 name+description entries ride along in every conversation turn — 54 installed skills ≈ 5,000+
@@ -25,8 +26,8 @@ inventories and assesses skill libraries.
 | Option | Meaning |
 |--------|---------|
 | `auto` (default) | automatic — the Agent decides per conversation language via `--lang`; if unset, falls back to env `SKILL_INV_LANG` → system locale → Chinese |
-| `zh` | always respond in Chinese |
-| `en` | always respond in English |
+| `zh` | report language pinned to Chinese (change any time via `--set-lang` / `--lang`) |
+| `en` | report language pinned to English (change any time via `--set-lang` / `--lang`) |
 
 - **View**: `--show-lang` prints the current setting, all three options with descriptions,
   and how to change them.
@@ -102,10 +103,10 @@ reverse-dependency scan roots.
 
 ## 7. User confirmation points
 
-- **The tool never closes a skill on its own.** The close write path needs your explicit
-  authorization: `--overrides --apply --yes` on closable platforms (WorkBuddy family) backs up
-  `settings.json` first, then merges "off" entries into `skillOverrides`; without `--yes` it is a
-  dry-run preview; non-closable platforms reject `--apply` outright.
+- **The tool never closes a skill on its own.** The close write path runs only with your explicit
+  authorization — pass `--overrides --apply --yes` on closable platforms (WorkBuddy family); the
+  tool backs up `settings.json` first, then merges "off" entries into `skillOverrides`; without
+  `--yes` it is a dry-run preview; non-closable platforms reject `--apply` outright.
 - **Prefer the host's own toggles**: e.g. WorkBuddy's `/skills` menu (press Esc to persist),
   QwenWork/Baidu client switches; generic mode has no close channel and outputs candidate lists only.
 - **Close candidates**: review the impact preview (`--impact <name>`) first; confirm there is no
@@ -121,7 +122,10 @@ reverse-dependency scan roots.
 - **No persistence mechanisms**: no cron jobs, no startup scripts, no daemons, no
   self-modification. Cross-session effects are limited to two user-consented, disclosed and
   reversible writes — the `off` entries in `skillOverrides` (reversible via the host's `/skills`
-  menu) and the language preference file (revert via `--set-lang auto` or delete the file).
+  menu) and the language preference file. The language preference file is a display preference
+  only (a single JSON key): nothing is scheduled or registered from it, it is read solely to
+  pick the report language, and `--set-lang auto` or deleting the file restores the default —
+  it is not a persistence mechanism.
 - **"No usage record" is not "unused"**: keyword triggers and expert/connector-internal calls
   leave no trace in usage logs — a structural blind spot covered by reverse-dependency scanning
   plus user confirmation.
