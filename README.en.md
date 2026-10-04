@@ -56,7 +56,9 @@ python scripts/skill_inventory.py --lang en     # this run only, keeps the saved
 ```
 
 Changes take effect immediately after saving; `--set-lang auto` or deleting
-`~/.workbuddy/skill-inventory.json` restores the default. Bucket names are always English
+`~/.workbuddy/skill-inventory.json` restores the default. `auto` is the fallback for users who
+have not expressed a preference, not a lock-in — pin a language with `--set-lang` at any time, or
+override one run with `--lang`. Bucket names are always English
 identifiers and `--json` keys are always English — scripted consumption is language-independent.
 
 ## Platform profiles & capability-aware closing

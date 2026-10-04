@@ -56,11 +56,16 @@ Therefore:
 3. **Safety keywords + self-protection + `--protect`**: leaves containing
    `security/audit/safe/guard/privacy/sanitize/compliance/backup`, this skill itself, and
    anything the user passes via `--protect` all land in `protected`.
-4. **Two consent-gated write paths**: read-only by default; the `cleanup` bucket is advice
-   only. Exactly two disk writes exist, both user-initiated: `--overrides --apply --yes`
-   (auto-backups `settings.json` first; dry-run without `--yes`) and `--set-lang` (writes the
-   report language preference to `~/.workbuddy/skill-inventory.json`; revertible to auto or by
-   deleting the file at any time).
+4. **Two write targets + one backup artifact, all consent-gated**: read-only by default; the
+   `cleanup` bucket is advice only. Exactly two user-initiated writes: `--overrides --apply --yes`
+   (dry-run without `--yes`; before the write it creates a `settings.json.bak.<timestamp>` safety
+   copy and prints its path) and `--set-lang` (writes the report language preference to
+   `~/.workbuddy/skill-inventory.json`).
+5. **Persistence cut**: no cron jobs, no startup scripts, no daemons, no self-modification. The
+   language preference file is a **display preference** only (a single JSON key) — nothing is
+   scheduled or registered from it, it is read solely to pick the report language on the next run,
+   and `--set-lang auto` or deleting it restores the default; it is not a persistence mechanism.
+   The `off` entries in `skillOverrides` are reversible via the host's `/skills` menu.
 
 ## 4. Open boundaries needing user confirmation
 

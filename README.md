@@ -52,6 +52,7 @@ python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改
 ```
 
 保存后切换立即生效；`--set-lang auto` 或删除 `~/.workbuddy/skill-inventory.json` 即恢复默认。
+`auto` 是「尚未表达偏好时的回落」而非锁定——随时 `--set-lang` 固定语言，或 `--lang` 单次覆盖。
 四档分类标识恒为英文，`--json` 键恒为英文——程序化消费不受语言设置影响。
 
 ## 平台档位与能力感知关闭

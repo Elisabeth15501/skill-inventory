@@ -44,7 +44,8 @@ therefore：
 1. **遥测缺口降级（telemetry-gap degradation）**：当 `usage-log.json` 缺失/损坏/无 `skills` 字段时，`load_usage()` 返回 `( {}, False )` 并打印 stderr 警告；此时 `cleanup` 桶**恒为空**，所有「近期无调用」的 skill 一律进入 `review`（人工确认），不自动建议关闭。
 2. **反向依赖扫描（reverse-dependency scan）**：扫描 `automations/`、`hooks/`（用词边界正则，避免 `git` 误锁 `github`），凡被引用的 skill 直接锁进 `protected`。`settings.json` 是 skill 注册表，**刻意排除**（否则会误锁 23 个）。
 3. **安全关键词 + 自保护 + `--protect`**：含 `security/audit/safe/guard/privacy/sanitize/compliance/backup` 的 leaf、本 skill 自身、以及用户显式 `--protect` 的，一律进 `protected`。
-4. **写路径共两处、均需授权（two consent-gated write paths）**：默认只读；`cleanup` 桶只给「建议」。落盘动作仅两项，均由用户显式触发：`--overrides --apply --yes`（先自动备份 `settings.json`，缺 `--yes` 仅 dry-run）与 `--set-lang`（把报告语言偏好写入 `~/.workbuddy/skill-inventory.json`，可随时改回 auto 或删文件恢复）。
+4. **两处写目标 + 一份备份工件、均需授权**：默认只读；`cleanup` 桶只给「建议」。落盘动作仅两项，均由用户显式触发：`--overrides --apply --yes`（缺 `--yes` 仅 dry-run；落笔前自动生成 `settings.json.bak.<时间戳>` 安全副本，路径打印后不保留状态）与 `--set-lang`（把报告语言偏好写入 `~/.workbuddy/skill-inventory.json`）。
+5. **持久化切割**：不注册定时任务 / 启动项 / 守护进程，不自我修改。语言偏好文件只是**显示偏好**（单个 JSON 键）——不基于它注册或排程任何东西，仅在下一次运行时被读取用来挑报告语言，`--set-lang auto` 或删除该文件即恢复默认；它不属于驻留机制。`skillOverrides` 的 off 项可在宿主 `/skills` 菜单恢复。
 
 ## 四、仍待用户确认的边界
 

@@ -37,6 +37,9 @@ inventories and assesses skill libraries.
   restores the default.
 - **One-off override**: `--lang zh|en` affects this run only and does not touch the saved setting.
 - **Precedence**: `--lang` (this run) ＞ saved setting (zh/en) ＞ auto fallback chain.
+- **`auto` is not a lock-in**: it is the fallback for users who have not expressed a preference,
+  not an enforced choice — pin zh or en with `--set-lang` at any time, or override a single run
+  with `--lang`. Users who pick nothing simply get the default report language.
 - **Invariant**: bucket names are always English identifiers (used / protected / closeable /
   manual-review) and `--json` output is always English-keyed — programmatic consumption is
   language-independent.

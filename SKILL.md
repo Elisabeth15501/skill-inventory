@@ -26,7 +26,7 @@ description: >-
   英文文档见 SKILL.en.md。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.3.2
+version: 1.3.3
 allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json), Write(~/.workbuddy/skill-inventory.json), Edit(~/.workbuddy/skill-inventory.json)
 metadata:
   openclaw:
@@ -87,6 +87,8 @@ metadata:
   仅在你显式运行该命令时写入），切换后立即对后续运行生效；`--set-lang auto` 或删除该文件即恢复默认。
 - **单次覆盖**：`--lang zh|en` 只影响本次运行，不改动已保存设置。
 - **优先级**：`--lang`（本次）＞ 已保存设置（zh/en）＞ auto 回落链。
+- **auto 不是锁定**：它是「用户尚未表达偏好时的回落」，不是强制——随时可用 `--set-lang` 固定为
+  zh/en，或用 `--lang` 单次覆盖；不选语言的用户看到中文报告纯属默认，不是被强制。
 - **恒定不变**：四档分类标识恒为英文（used / protected / closeable / manual-review），
   `--json` 输出恒为英文键——程序化消费不受语言设置影响。
 
