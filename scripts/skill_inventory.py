@@ -32,7 +32,8 @@ run, and --set-lang auto or deleting the file restores the default — it is not
 mechanism. Cross-session effects are limited to the two user-controlled writes above: the
 consented "off" entries in skillOverrides (reversible at any time via the host's /skills
 menu) and the language preference file (reversible via --set-lang auto or file deletion).
-NETWORK: none. SUBPROCESS: none.
+NETWORK: none. CHILD PROCESSES: none (no shell-outs, no external program invocation).
+/ 网络：无。子进程：无（不执行 shell、不调用外部程序）。
 
 行为边界 / Behaviour contract
 ----------------------------

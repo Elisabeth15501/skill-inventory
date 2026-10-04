@@ -26,7 +26,7 @@ description: >-
   英文文档见 SKILL.en.md。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.3.3
+version: 1.3.4
 allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json), Write(~/.workbuddy/skill-inventory.json), Edit(~/.workbuddy/skill-inventory.json)
 metadata:
   openclaw:
