@@ -53,6 +53,7 @@ python scripts/skill_inventory.py --show-lang   # current setting, options and h
 python scripts/skill_inventory.py --set-lang en # save preference (writes ~/.workbuddy/skill-inventory.json), effective immediately
 python scripts/skill_inventory.py --set-lang auto
 python scripts/skill_inventory.py --lang en     # this run only, keeps the saved setting
+python scripts/skill_inventory.py --selftest    # self-test the built-in parser (zero deps, offline)
 ```
 
 Changes take effect immediately after saving; `--set-lang auto` or deleting
@@ -149,7 +150,7 @@ behavior. The table below gives verifiable facts for each (line counts measured 
 
 | Rule | What the scanner says | Facts / response |
 |---|---|---|
-| **Ae1** referenced artifact not completely inspected | The scanner cannot fully inline `scripts/skill_inventory.py` | **Inspection limitation.** That script measures 1293 lines on v1.3.1 and has zero third-party dependencies (standard library only; `yaml` is an optional accelerator). The file's own **static-analysis layer passes** ("No suspicious patterns detected"). Full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory) for manual review at any time. The finding count grows with the script's line count (7→11→12) — it tracks code size, not behavior change |
+| **Ae1** referenced artifact not completely inspected | The scanner cannot fully inline `scripts/skill_inventory.py` | **Inspection limitation.** That script measures 1405 lines on v1.3.5 and has zero third-party dependencies (standard library only; `yaml` is an optional accelerator). The file's own **static-analysis layer passes** ("No suspicious patterns detected"). Full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory) for manual review at any time. The finding count grows with the script's line count (7→11→12) — it tracks code size, not behavior change |
 | **Lp1** capability broader than declared | The script writes to disk; capability exceeds the declaration | The declaration is now complete — **two write targets + one backup artifact**, all greppable in the frontmatter `permissions` block and the script's docstring header: ① the `skillOverrides` key of `settings.json` — requires the two explicit flags `--apply --yes` (either alone = dry-run); ② the language preference file — requires an explicit `--set-lang`; ③ a `settings.json.bak.<ts>` safety copy — created only before step ①'s write, path printed in the output, never read back. See the behaviour contract above |
 | **Session Persistence** | Cross-session state detected | No cron jobs, no startup scripts, no daemons, no self-modification. The language preference file is a display preference (a single JSON key): nothing is scheduled or registered from it, it is read once to pick the next report language; `--set-lang auto` or deleting it restores the default |
 | **Anti-Refusal** | "always / always" style wording in the docs | Rewritten to "report language pinned to X (change any time)" — it describes the **tool's output language**, not an obedience promise toward the user |

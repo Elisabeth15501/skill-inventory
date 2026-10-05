@@ -49,6 +49,7 @@ python scripts/skill_inventory.py --show-lang   # 查看当前设置、选项说
 python scripts/skill_inventory.py --set-lang en # 保存偏好（写入 ~/.workbuddy/skill-inventory.json），立即生效
 python scripts/skill_inventory.py --set-lang auto
 python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改已保存设置
+python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依赖，可离线跑）
 ```
 
 保存后切换立即生效；`--set-lang auto` 或删除 `~/.workbuddy/skill-inventory.json` 即恢复默认。
@@ -124,7 +125,7 @@ python scripts/skill_inventory.py --lang en     # 仅本次运行覆盖，不改
 
 | 规则 | 扫描器的说法 | 事实依据与回应 |
 |---|---|---|
-| **Ae1** 引用的工件未被完整检查 | 无法把 `scripts/skill_inventory.py` 完整纳入上下文检查 | **检查能力局限**。该脚本 v1.3.1 实测 1293 行，零第三方依赖（仅标准库，`yaml` 为可选加速项）。同一文件的**静态分析层结论为 Pass**（"No suspicious patterns detected"）。完整源码公开在 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查。findings 条数随脚本行数增长（7→11→12），与代码量正相关，不反映行为变化 |
+| **Ae1** 引用的工件未被完整检查 | 无法把 `scripts/skill_inventory.py` 完整纳入上下文检查 | **检查能力局限**。该脚本 v1.3.5 实测 1405 行，零第三方依赖（仅标准库，`yaml` 为可选加速项）。同一文件的**静态分析层结论为 Pass**（"No suspicious patterns detected"）。完整源码公开在 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查。findings 条数随脚本行数增长（7→11→12），与代码量正相关，不反映行为变化 |
 | **Lp1** 能力宽于声明 | 脚本会写盘，能力范围超出声明 | 声明已补全为**两处写目标 + 一份备份工件**（frontmatter `permissions` 与脚本头部声明块均可 grep 验证）：① `settings.json` 的 `skillOverrides` 键——需 `--apply --yes` 双显式 flag，缺一即 dry-run；② 语言偏好文件——需显式 `--set-lang`；③ `settings.json.bak.<ts>` 安全副本——仅在第①步落笔前生成，路径打印在输出里，从不回读。逐条见上方「行为契约」 |
 | **Session Persistence** | 存在跨会话驻留 | 无 cron / 启动项 / 守护进程 / 自我修改。语言偏好文件是显示偏好（单个 JSON 键），不基于它注册或排程任何东西，仅在下次运行时被读取一次；`--set-lang auto` 或删文件即恢复默认 |
 | **Anti-Refusal** | 文档出现「always / 始终」类措辞 | 已改为「报告语言固定为 X（随时可改回）」——描述的是**工具输出语言**，不构成对用户的服从承诺 |

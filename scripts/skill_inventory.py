@@ -64,7 +64,7 @@ preference to ~/.workbuddy/skill-inventory.json (user-controlled display prefere
    这两种用法在用量日志里**完全无痕**。
    所以：有记录 ⇒ 确实用过（可信）；无记录 ⇒ **不**直接判死。
 
-🔒 P0 护栏（本工具的硬性安全设计）
+🔒 硬性安全设计（不可跳过的护栏）
 ------------------------------
   1. 受保护技能（见 PROTECTED_LEAVES / frontmatter `protected: true` / 安全关键词启发式）
      永不进入「可关闭」候选，单独列出「需人工介入才能关闭」。
@@ -162,7 +162,7 @@ PLATFORMS = {
 }
 
 
-# ───────────────────────────── P0 护栏数据 ─────────────────────────────
+# ───────────────────────────── 护栏数据（不可跳过的判定规则） ─────────────────────────────
 # 默认受保护（永远不进「可关闭」候选）。可自行扩展或用 --protect / --protect-file 追加。
 PROTECTED_LEAVES = {
     "skill-inventory",          # 本工具自身
@@ -190,7 +190,8 @@ def parse_frontmatter(text: str) -> dict:
     """解析 frontmatter。优先用 PyYAML；无则回退内置解析器。
 
     内置解析器只认**顶层**键，三种标量都支持：
-    单行（可带引号）、块标量（`>` / `|`，允许含空行）、普通标量跨行续写。
+    单行（可带引号）、块标量（`>` / `|`，含空行时按 YAML 折叠/保留语义还原段落）、
+    普通标量跨行续写。两者对拍结果一致，见 `--selftest`。
     """
     if not text.startswith("---"):
         return {}
@@ -211,6 +212,49 @@ def parse_frontmatter(text: str) -> dict:
     return _fallback_frontmatter(body)
 
 
+def _block_scalar(raw_lines: list, style: str) -> str:
+    """把块标量的原始行按 YAML 语义拼成字符串（无 PyYAML 时的等价实现）。
+
+    折叠（`>` / `>-` / `>+`）：块内单换行折成空格；k 个连续空行 → k 个换行符。
+    保留（`|` / `|-` / `|+`）：换行原样保留，空行数 + 1 个换行。
+    结尾裁剪：`-` 去掉全部尾随换行；默认裁剪保留一个；`+` 保留原有的。
+    实测对拍见 `python skill_inventory.py --selftest`。
+    """
+    literal = style.startswith("|")
+    paras: list = []                                   # 各段的行列表
+    seps: list = []                                    # 相邻两段之间的空行数
+    cur: list = []
+    blanks = 0
+    trailing = 0
+    for ln in raw_lines:
+        s = ln.strip()
+        if s:
+            if cur:
+                paras.append(cur)
+                seps.append(blanks)                    # 这段与下一段之间的空行数
+            blanks = 0
+            cur = [s]
+        else:
+            blanks += 1
+            trailing = blanks
+    if cur:
+        paras.append(cur)
+    if not paras:
+        return ""
+
+    glue = "\n" if literal else " "
+    parts: list = [glue.join(paras[0])]
+    for k in range(1, len(paras)):
+        bl = seps[k - 1]
+        n = (bl + 1) if literal else bl                # 保留块：空行数+1 换行；折叠块：空行数即换行数
+        parts.append("\n" * n if n else " ")
+        parts.append(glue.join(paras[k]))
+    text = "".join(parts)
+    if not style.endswith("-"):
+        text += "\n" * (1 + (trailing if style.endswith("+") else 0))
+    return text
+
+
 def _fallback_frontmatter(lines: list) -> dict:
     """零依赖回退解析器：只提取顶层键，忽略所有缩进的嵌套结构。"""
     fm: dict = {}
@@ -227,11 +271,10 @@ def _fallback_frontmatter(lines: list) -> dict:
         key, val = key.strip(), val.strip()
 
         if val in (">", "|", ">-", "|-", ">+", "|+"):        # 块标量：收到底
-            j, buf = i + 1, []
+            j = i + 1
             while j < n and (not lines[j].strip() or lines[j][:1] in (" ", "\t")):
-                buf.append(lines[j].strip())
                 j += 1
-            fm[key] = " ".join(x for x in buf if x).strip()
+            fm[key] = _block_scalar(lines[i + 1:j], val)
             i = j
             continue
 
@@ -285,7 +328,7 @@ def load_usage(path, adapter=None) -> tuple:
     usage_dict 统一为 {uid: {"lastUsedDate": iso, "recentDates": [...], "uses": n}}。
     adapter="qwen" 时先把千问格式归一化。
 
-    P1 已修复：原先静默吞异常返回 {}，会导致日志一旦损坏/轮换，全库无声变成
+    设计取舍：解析失败**不**静默返回 {}——日志一旦损坏/轮换，全库会无声变成
     「未使用」→ 整套关闭建议 100% 错误且无人察觉。现在改为 stderr 显式告警，
     并返回 available=False，让上层走「遥测缺口降级」分支（不判死）。
     """
@@ -315,7 +358,7 @@ def scan(roots: list, market_resolver=None) -> list:
     market_resolver: 可选 callable(skill_dir: Path) -> bool，覆盖默认的「_meta.json 存在即市场」判定
         （千问用它改读中心化 lock 文件的 source 字段，见 _qwen_extra）。
 
-    P1-4 已修复：rglob 会连带捞出 <skill>/references/SKILL.md 之类的嵌套文件，
+    嵌套排除：rglob 会连带捞出 <skill>/references/SKILL.md 之类的嵌套文件，
     被误计为独立技能。现采用「最浅 SKILL.md 优先」规则——若某 SKILL.md 的祖先目录
     （介于其与 root 之间）也存在 SKILL.md，则该文件视为嵌套引用，跳过。
 
@@ -382,7 +425,7 @@ def scan(roots: list, market_resolver=None) -> list:
                 "disabled_region": disabled,
             })
     # 多根去重：同名 leaf 优先非 disabled 区域；同时记录该 leaf 跨越的区域数与
-    # 其中「非禁用」区域数（用于 P0-1 在报告中区分「真·多份激活」与「激活+禁用副本」）。
+    # 其中「非禁用」区域数（报告里据此区分「真·多份激活」与「激活+禁用副本」）。
     seen: dict = {}
     order: list = []
     for r in raw:
@@ -409,7 +452,7 @@ def scan(roots: list, market_resolver=None) -> list:
 
 
 def _est_tokens(text: str) -> float:
-    """CJK 字符约占 1.6 token/字，其余约 4 字符/token（P2-6 修正原 chars/3.2 低估）。"""
+    """CJK 字符约占 1.6 token/字，其余约 4 字符/token（早期按 chars/3.2 估算会明显低估）。"""
     cjk = sum(1 for ch in text if ord(ch) > 0x2E80)
     other = len(text) - cjk
     return cjk / 1.6 + other / 4.0
@@ -420,7 +463,7 @@ def _col_w(s: str) -> int:
 
 
 def _pad(s: str, width: int, align: str = "<") -> str:
-    """按显示列（CJK=2）截断/补空格，保证表格对齐（P2-6）。"""
+    """按显示列（CJK=2）截断/补空格，保证表格对齐。"""
     cols = _col_w(s)
     if cols > width:
         out, c = [], 0
@@ -435,7 +478,7 @@ def _pad(s: str, width: int, align: str = "<") -> str:
 
 
 def find_duplicates(rows: list) -> dict:
-    """P0-1：按归一化名称分组，找出同名（疑似重复/冗余）技能。"""
+    """按归一化名称分组，找出同名（疑似重复/冗余）技能。"""
     by_name: dict = {}
     for r in rows:
         by_name.setdefault(norm(r["name"]), []).append(r)
@@ -490,10 +533,10 @@ def _qwen_extra(qwen_root: pathlib.Path):
     """千问专用：返回 (market_dirs: set|None, ref_roots: list)。
 
     market_dirs：来自 `skills/.skills_store_lock.json` 中 source!=local 的 installDir 集合，
-        作为「来自市场/社区」的权威判定（P2-5：不再只靠逐目录的 _meta.json，后者千问仅 2/34 命中且无来源字段）。
+        作为「来自市场/社区」的权威判定（不只靠逐目录的 _meta.json：千问实测仅 2/34 命中且无来源字段）。
         锁文件缺失时返回 None（交由 scan 走默认 _meta.json 判定）。
     ref_roots：可能隐式引用技能的配置——路由状态(.dws-skill-state.json 的 skillNames/routingFallbackSkill)、
-        锁文件、各 skill 的 config.json、插件的 plugin.json（P2-7 反向依赖扫描根）。
+        锁文件、各 skill 的 config.json、插件的 plugin.json（反向依赖扫描根）。
     """
     skills = qwen_root / "skills"
     market_dirs = None
@@ -559,7 +602,7 @@ def _ref_kind(p: pathlib.Path) -> str:
 
 
 def scan_references(rows: list, ref_roots: list) -> dict:
-    """反向依赖扫描（P0 增强）：在自动化 / Hook / 专家·连接器 / 子 agent 定义里找对本技能的引用。
+    """反向依赖扫描：在自动化 / Hook / 专家·连接器 / 子 agent 定义里找对本技能的引用。
 
     用户可能从不在对话里明说要调某 skill，而是被「关键词触发器 / 自动化任务 / Hook /
     专家·连接器组件」间接调用——这些在用量日志里**完全无痕**。直接扫描这些定义文件，
@@ -624,7 +667,7 @@ def classify(rows: list, telemetry: bool, can_close: bool) -> dict:
     - review   ：其余「无使用记录但近期改过 / 或平台无遥测」→ 需人工确认，不可自动关。
     - keep    ：有使用记录。
 
-    🔒 P0 关键一：当 telemetry=False（无遥测/读取失败），cleanup 桶恒为空，
+    🔒 护栏一：当 telemetry=False（无遥测/读取失败），cleanup 桶恒为空，
        所有无记录技能落入 review，并打「遥测缺口」标记。
     🔒 能力感知关键二：当 can_close=False（平台不支持程序化关闭），**即使有遥测也不产出
        cleanup**——避免给用户在千问等平台上根本执行不了的「关闭建议」。
@@ -754,10 +797,16 @@ S = {
     "ov_apply_ui": ("\n// ℹ️ {label} 的关闭需在客户端 UI 操作（技能列表「启用开关」/ 专家套件禁用），本工具暂不代执行。",
                     "\n// ℹ️ {label}: closing must be done in the client UI (enable toggle / expert-suite disable); this tool does not perform it."),
     # --- apply_wb ---
-    "warn_no_log": ("[warn] 未找到用量日志（未配置用量日志路径）—— 按「无遥测」降级，不判任何技能为可关闭。",
-                    "[warn] no usage log found (no path configured) -- degrading to no-telemetry; no skill will be marked closeable."),
-    "warn_log_fail": ("[warn] 用量日志读取失败（{e}）—— 按「无遥测」降级，不判任何技能为可关闭。",
-                      "[warn] usage log read failed ({e}) -- degrading to no-telemetry; no skill will be marked closeable."),
+    "warn_no_log": ("[E-LOG] 未找到用量日志 —— 本次按「无遥测」处理：不判任何技能可关闭，全库落「需人工确认」。\n"
+                    "       想拿到可关闭建议：用 --usage-log <路径> 指向平台的用量日志后重跑。",
+                    "[E-LOG] No usage log found — running as \"no telemetry\": nothing is marked closeable and every skill\n"
+                    "       lands in \"manual review\". To get close candidates, pass --usage-log <path> and re-run."),
+    "warn_log_fail": ("[E-LOG] 用量日志读取失败 —— 本次按「无遥测」处理：不判任何技能可关闭。\n"
+                      "       原因：{e}\n"
+                      "       建议：先用 --protect <名称> 手动保护关键技能；日志修好后重跑即恢复判定。",
+                      "[E-LOG] Usage log unreadable — running as \"no telemetry\": nothing is marked closeable.\n"
+                      "       Cause: {e}\n"
+                      "       Try: protect critical skills with --protect <name> first; re-run after the log is fixed."),
     "ap_none": ("[apply] 没有可关闭候选，无需操作。", "[apply] no close candidates; nothing to do."),
     "ap_dry": ("[dry-run] 未加 --yes，仅预览（不读写文件）：", "[dry-run] --yes missing; preview only (no files read or written):"),
     "ap_backup": ("[backup] settings.json -> {p}", "[backup] settings.json -> {p}"),
@@ -994,7 +1043,7 @@ def report(rows: list, telemetry: bool, profile: dict) -> None:
                 print(f"        {M('impact_hits', t=', '.join(e['terms']))}")
         print(M("impact_hint"))
 
-    # P0-1：疑似重复/冗余技能
+    # 疑似重复/冗余技能
     #   (a) 同一 leaf 在 ≥2 个「非禁用」区域都激活 → 真·多份加载（重点）；
     #   (b) 同一 leaf 跨区但仅 1 个激活（多为「激活 + 禁用副本」）→ 低优先提示；
     #   (c) 不同 leaf 但归一化名称相同 → 疑似重名技能。
@@ -1156,9 +1205,63 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
     return profile, roots, usage, agent
 
 
+def run_selftest() -> int:
+    """回退解析器自测：与 PyYAML 对拍块标量语义，无需任何依赖即可运行。
+
+    覆盖折叠/保留 × 空行数量 × 结尾裁剪的组合，另含本技能自身 SKILL.md 的
+    实文件解析检查。有 PyYAML 时逐例对拍，没有时只跑内置断言。
+    """
+    cases = [
+        (">-", ["line one", "line two"], "line one line two"),
+        (">-", ["line one", "", "line two"], "line one\nline two"),
+        (">-", ["line one", "", "", "line two"], "line one\n\nline two"),
+        (">-", ["line one", ""], "line one"),
+        (">", ["line one", "", "line two"], "line one\nline two\n"),
+        ("|-", ["line one", "", "line two"], "line one\n\nline two"),
+        ("|", ["line one", "", "line two"], "line one\n\nline two\n"),
+        ("|-", ["line one", "line two"], "line one\nline two"),
+    ]
+    ok = bad = 0
+    print("[selftest] frontmatter block-scalar semantics 块标量语义")
+    for style, body, want in cases:
+        # 末尾补一个换行：真实文档里块标量后面一定还有换行，PyYAML 的 clip 裁剪才会保留它；
+        # 回退解析器拿到的是 splitlines() 后的行列表，按同一语义处理。
+        src = "\n".join([f"description: {style}"] + [f"  {ln}" if ln else "" for ln in body]) + "\n"
+        got = _fallback_frontmatter(src.splitlines()).get("description")
+        if yaml is not None:
+            try:
+                ref = (yaml.safe_load(src) or {}).get("description")
+            except Exception:                                    # noqa: BLE001
+                ref = want
+        else:
+            ref = want
+        if got == ref and got == want:
+            ok += 1
+        else:
+            bad += 1
+            print(f"  [FAIL] style={style:3s} body={body!r}\n"
+                  f"         got={got!r} want={want!r} pyyaml={ref!r}")
+    print(f"  用例 {ok} 通过 / {bad} 失败（对照源：{'PyYAML' if yaml else '内置期望值'}）")
+
+    # 实文件检查：解析本技能自己的 SKILL.md（若在仓库里）
+    here = pathlib.Path(__file__).resolve().parent.parent / "SKILL.md"
+    if here.exists():
+        fm = _fallback_frontmatter(here.read_text(encoding="utf-8").splitlines()[1:])
+        need = ("name", "version", "description")
+        got = {k: fm.get(k) for k in need}
+        if all(got.values()):
+            print(f"  [OK] SKILL.md 回退解析：version={got['version']}、description {len(got['description'])} 字符")
+        else:
+            bad += 1
+            print(f"  [FAIL] SKILL.md 回退解析缺键：{got}")
+    return 1 if bad else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Office-agent skill inventory & health check 办公型 Agent 技能库盘点与效能体检")
+    ap.add_argument("--selftest", action="store_true",
+                    help="Run the built-in parser self-test and exit 自测回退解析器后退出（无需依赖）")
     ap.add_argument("--agent", default="auto",
                     choices=["workbuddy", "qwen", "baidu", "generic", "auto"],
                     help="Target platform (determines close channel) 目标平台档位；auto 探测失败回落 generic")
@@ -1200,6 +1303,9 @@ def main() -> int:
                          "are always English) 本次运行的语言（覆盖已保存设置；--json 键恒为英文）")
     args = ap.parse_args()
 
+    if args.selftest:
+        return run_selftest()
+
     global LANG
     LANG = resolve_lang(args.lang)
 
@@ -1231,7 +1337,7 @@ def main() -> int:
         global SAFETY_KEYWORDS
         SAFETY_KEYWORDS = ()  # 关闭启发式
 
-    # 千问：用中心化 lock 文件的 source 字段判定「来自市场」（P2-5），并取反向依赖扫描根（P2-7）
+    # 千问：用中心化 lock 文件的 source 字段判定「来自市场」，并取反向依赖扫描根
     market_resolver = None
     qwen_ref = []
     if agent_key == "qwen" and roots:
@@ -1241,7 +1347,7 @@ def main() -> int:
 
     rows = scan(roots, market_resolver)
 
-    # 反向依赖扫描（P0 增强）：锁定被自动化 / Hook / 专家·连接器 / 路由层引用的技能
+    # 反向依赖扫描：锁定被自动化 / Hook / 专家·连接器 / 路由层引用的技能
     if not args.no_ref_scan:
         ref_roots = [str(p) for p in DEFAULT_REF_ROOTS if pathlib.Path(p).exists()]  # WorkBuddy 默认根
         if agent_key == "qwen":

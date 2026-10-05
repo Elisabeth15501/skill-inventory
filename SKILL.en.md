@@ -90,6 +90,7 @@ Pure local static analysis — no network, no subprocesses (sandbox red-line com
 | `python scripts/skill_inventory.py --show-lang` | show language setting and options |
 | `python scripts/skill_inventory.py --set-lang auto\|zh\|en` | save the language setting (effective immediately) |
 | `python scripts/skill_inventory.py --lang zh\|en` | language override for this run |
+| `python scripts/skill_inventory.py --selftest` | self-test the built-in frontmatter parser (zero deps, offline) |
 
 Flow: `auto-detect platform → fall back to generic mode`. Generic mode **requires** `--root`;
 without a usage log the tool degrades to "nothing judged closeable"; `--refs` adds
