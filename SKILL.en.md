@@ -2,6 +2,8 @@
 
 > **中文文档**：`SKILL.md`（this file is the English version）· `README.md`。
 > The report language is user-selectable — see "Language setting" below.
+> Both editions carry the same content: the English files are not shorter (measured on v1.4.0 —
+> SKILL 14,460 vs 10,722 chars, README 14,505 vs 7,261), with matching section counts and FAQ items.
 > Maintainer-only notes (publishing checklist / usage-trigger archive) live in the GitHub
 > repo's `references/` and are not part of the distributed package.
 
@@ -143,6 +145,70 @@ reverse-dependency scan roots.
 - **Duplicate detection is approximate** (name/description/size), not semantic dedup; results
   cover discoverable config roots only — T2 auto-mounting and descriptive keyword references
   are invisible to it.
+
+---
+
+## 9. FAQ
+
+**Q1. Why is my skill in "manual review" instead of "close candidates"?**
+Only skills with **no usage record** *and* **untouched for over 30 days** become close candidates.
+Four things push a skill into manual review: ① no telemetry (usage log missing/unreadable) — the tool
+under-reports rather than risking a false kill; ② modified within the last 30 days; ③ the host has no
+programmatic close channel (e.g. QwenWork, generic mode); ④ it matches a protection rule. Passing
+`--usage-log <path>` and protecting confirmed skills with `--protect` cuts most of the noise.
+
+**Q2. Does "has usage record" mean "only ever invoked explicitly"?**
+No. The usage log records **explicit invocations only** (T1). Auto-mounting (T2), keyword routing (T3),
+scheduled tasks (T4), hooks (T5) and expert/connector-internal calls (T6) leave no trace at all. So
+"used" does not mean "explicitly used", and — more importantly — "no record" does not mean "unused";
+that gap is exactly why manual review exists.
+
+**Q3. The report says "telemetry gap". How do I fix it?**
+It means the usage log could not be read, so conclusions rest on last-modified time only and **no**
+close candidates are emitted. Two remedies: ① if the platform has a log, point at it with
+`--usage-log <path>` (e.g. `~/.qwenworkcn/skill-usage.json`); ② if there is no log, rely on
+reverse-dependency scanning (`--refs` for automation / hook / config roots) plus manual confirmation —
+the tool stays conservative in that state.
+
+**Q4. Could closing a skill break an automation or keyword trigger?**
+Three guardrails: ① reverse-dependency scanning locks anything referenced by automation / hooks /
+routing / plugin configs into the protected bucket; ② safety-audit keywords and this tool itself are
+never candidates; ③ every candidate needs your per-item confirmation. **Guardrails are not
+exhaustive** — T2 auto-mounting and descriptive keyword references are invisible, so always review the
+impact preview first: `--impact <name>`.
+
+**Q5. What exactly gets written, and can I undo it?**
+One place only: the `skillOverrides` key of `~/.workbuddy/settings.json` (candidates marked `off`).
+Before writing, a timestamped `settings.json.bak.<ts>` backup is created and its path is printed; the
+write itself is an atomic `os.replace`, so a half-written config is never left behind. Three ways back:
+restore the backup file, flip the entries in the host's `/skills` menu, or delete the entries.
+
+**Q6. Why do QwenWork / Baidu / generic mode get no close actions?**
+Closing capabilities differ per host. Where `can_close=False` there is no programmatic per-skill
+switch, so the tool forks by capability: inventory and candidate lists only, leaving the actual action
+to the host's own toggles or manual removal — rather than suggesting something you cannot execute.
+
+**Q7. How accurate is the "suspected duplicate" detection?**
+It is **approximate** matching (name / description / size), not semantic deduplication: it will flag a
+market copy and your own copy with the same name as suspected duplicates, and it can miss pairs whose
+descriptions differ but whose function overlaps. Treat it as a lead, not a verdict.
+
+**Q8. What do the `[E-LOG]` / `[E-CONF]` codes mean?**
+Stable codes, easy to search and report:
+
+| Code | Meaning | Typical fix |
+|------|---------|-------------|
+| `E-LOG` | usage log missing or unreadable | pass `--usage-log <path>`; or protect critical skills with `--protect` first |
+| `E-ROOT` | skills directory not found | check the path, or point at it with `--root <dir>` |
+| `E-PLATFORM` | unknown `--agent` value | use one of workbuddy / qwen / baidu / generic / auto |
+| `E-NOCLOSE` | host has no programmatic close channel | use the host's toggles or remove manually |
+| `E-CONF` | reading/writing settings.json failed | nothing was modified; check whether another process holds the file (reads are retried twice) |
+| `E-READ` | one skill directory was unreadable | that directory is skipped, the rest is unaffected; check its permissions |
+
+**Q9. The report lists no close candidates — does that mean my skills are all fine?**
+Not necessarily; there is probably no telemetry (Q1/Q3). The tool's stance is "under-report rather
+than falsely kill": without usage records it will not make the closing decision for you, but it always
+tells you exactly where the gap is.
 
 ---
 

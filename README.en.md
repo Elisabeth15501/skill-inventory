@@ -1,14 +1,16 @@
 # skill-inventory · Skill inventory & health check for office agents (English)
 
 > 中文版：[README.md](README.md) · Docs language: `SKILL.md` (Chinese) / `SKILL.en.md` (English)
+> Both editions carry the same content: the English files are not shorter (measured on v1.4.0 —
+> README 14,505 vs 7,261 chars, SKILL 14,460 vs 10,722), with matching section counts and FAQ items.
 
 Skill inventory & health check for office agents (WorkBuddy, QwenWork, Baidu DuMate, Tianxi AI,
 …): scans any skills directory, measures size / context-token footprint, detects duplicates, and
 classifies skills into **used / closeable / manual-review / protected** with **conservative**
 slimming advice. **Read-only by default**: inventory, classification and advice write nothing
-anywhere; there are exactly two write paths, both requiring explicit consent
-(`--overrides --apply --yes` for closes — WorkBuddy-family platforms only, auto-backup first;
-`--set-lang` for the language preference) — the decision stays human.
+anywhere; there are two write targets plus one backup artifact, all requiring explicit consent
+(`--overrides --apply --yes` for closes — WorkBuddy-family platforms only, writes atomically and
+backs up settings.json first; `--set-lang` for the language preference) — the decision stays human.
 
 > Skills whose manifest (name + description) rides along in every conversation turn cost real
 > tokens — 54 installed skills ≈ 5,000+ tokens burned per turn. This tool provides the facts for
@@ -133,6 +135,33 @@ never get close actions**, only a report plus manual-removal instructions:
   do not rush.
 - **protected**: never auto-suggested for closing; explicit human action required.
 
+## FAQ (quick reference; the full 9 Q&As live in SKILL.en.md §9)
+
+**Q. Why is my skill in "manual review" instead of "close candidates"?**
+Only "no usage record" **and** "untouched for over 30 days" qualifies. Four reasons push it elsewhere:
+no telemetry / modified recently / the host has no programmatic close channel / it matches a protection
+rule. `--usage-log <path>` and `--protect <name>` cut most of the noise.
+
+**Q. Does "has usage record" mean "only ever invoked explicitly"?**
+No. The usage log records explicit invocations (T1) only; auto-mounting, keyword routing, scheduled
+tasks, hooks and expert-internal calls (T2–T6) leave no trace. So "no record" does not mean "unused".
+
+**Q. The report says "telemetry gap" — what now?**
+The platform has no usable log, so conclusions rest on last-modified time and **no** close candidates are
+emitted. If a log exists, point at it with `--usage-log <path>`; otherwise rely on `--refs`
+reverse-dependency scanning plus manual confirmation.
+
+**Q. Could closing break an automation or keyword trigger?**
+Three guardrails: reference-locking via reverse-dependency scan, safety-audit keywords and this tool
+itself are never candidates, and every candidate needs your confirmation. Guardrails are not exhaustive
+(T2 auto-mounting is invisible) — run `--impact <name>` first.
+
+**Q. What do `[E-LOG]` / `[E-CONF]` mean?**
+Stable error codes: `E-LOG` (usage log missing/unreadable), `E-ROOT` (skills dir not found), `E-PLATFORM`
+(unknown `--agent`), `E-NOCLOSE` (host has no programmatic close channel), `E-CONF` (settings.json
+read/write failed; nothing modified), `E-READ` (one skill dir unreadable, skipped). Full table in
+SKILL.en.md §9.
+
 ## Limitations (stated honestly)
 
 - Usage frequency relies on the platform usage log; WorkBuddy has a real ledger
@@ -150,7 +179,7 @@ behavior. The table below gives verifiable facts for each (line counts measured 
 
 | Rule | What the scanner says | Facts / response |
 |---|---|---|
-| **Ae1** referenced artifact not completely inspected | The scanner cannot fully inline `scripts/skill_inventory.py` | **Inspection limitation.** That script measures 1405 lines on v1.3.5 and has zero third-party dependencies (standard library only; `yaml` is an optional accelerator). The file's own **static-analysis layer passes** ("No suspicious patterns detected"). Full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory) for manual review at any time. The finding count grows with the script's line count (7→11→12) — it tracks code size, not behavior change |
+| **Ae1** referenced artifact not completely inspected | The scanner cannot fully inline `scripts/skill_inventory.py` | **Inspection limitation.** That script measures 1470 lines on v1.4.0 and has zero third-party dependencies (standard library only; `yaml` is an optional accelerator). The file's own **static-analysis layer passes** ("No suspicious patterns detected"). Full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory) for manual review at any time. The finding count grows with the script's line count (7→11→12) — it tracks code size, not behavior change |
 | **Lp1** capability broader than declared | The script writes to disk; capability exceeds the declaration | The declaration is now complete — **two write targets + one backup artifact**, all greppable in the frontmatter `permissions` block and the script's docstring header: ① the `skillOverrides` key of `settings.json` — requires the two explicit flags `--apply --yes` (either alone = dry-run); ② the language preference file — requires an explicit `--set-lang`; ③ a `settings.json.bak.<ts>` safety copy — created only before step ①'s write, path printed in the output, never read back. See the behaviour contract above |
 | **Session Persistence** | Cross-session state detected | No cron jobs, no startup scripts, no daemons, no self-modification. The language preference file is a display preference (a single JSON key): nothing is scheduled or registered from it, it is read once to pick the next report language; `--set-lang auto` or deleting it restores the default |
 | **Anti-Refusal** | "always / always" style wording in the docs | Rewritten to "report language pinned to X (change any time)" — it describes the **tool's output language**, not an obedience promise toward the user |

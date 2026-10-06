@@ -17,14 +17,20 @@
 ------------------------------------------------------
 WRITE SCOPE: two target paths + one disclosed backup artifact, all declared here:
   1. ~/.workbuddy/settings.json -> key "skillOverrides", via --overrides --apply --yes
-     (dry-run without --yes; see the backup artifact below);
+     (dry-run without --yes; see the backup artifact below). Written atomically:
+     a temp file in the same directory, then os.replace -- a half-written config is
+     never left behind, and a failed write leaves the original untouched.
   2. ~/.workbuddy/skill-inventory.json -> report language preference {"language": "auto|zh|en"},
      written only when the user explicitly runs --set-lang (a display preference; revert via
-     --set-lang auto or by deleting the file).
+     --set-lang auto or by deleting the file). Also written atomically.
   3. BACKUP ARTIFACT (safety copy, not a config change): while --apply --yes runs, one timestamped
      copy ~/.workbuddy/settings.json.bak.<YYYYMMDD-HHMMSS> is created beside settings.json before
      it is modified; its path is printed to the user, it is inert, and it is never read back.
-Everything else is read-only.
+Everything else is read-only. Reads that hit a "file busy" condition (Windows: the host holding
+its own config open) are retried twice at 0.5s before the error is surfaced.
+ERROR CODES: E-LOG (usage log missing/unreadable) · E-ROOT (skills dir not found) ·
+E-PLATFORM (unknown --agent) · E-NOCLOSE (host has no programmatic close channel) ·
+E-CONF (settings.json read/write failed; nothing modified) · E-READ (one skill dir unreadable, skipped).
 PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification.
 The language preference file is a display preference only (a single JSON key): nothing is
 scheduled or registered from it, it is read solely to pick the report language on the next
@@ -337,7 +343,7 @@ def load_usage(path, adapter=None) -> tuple:
               file=sys.stderr)
         return {}, False
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(_read_text(path))
         if adapter == "qwen":
             data = _adapt_qwen(raw)
         else:
@@ -388,7 +394,11 @@ def scan(roots: list, market_resolver=None) -> list:
             if nested:
                 continue
             p = sd / "SKILL.md"
-            text = p.read_text(encoding="utf-8", errors="replace")
+            try:
+                text = _read_text(p)
+            except (PermissionError, OSError) as e:   # 单个技能读不到就跳过，不中断整轮盘点
+                print(M("err_skill_read", d=sd.name, e=e), file=sys.stderr)
+                continue
             fm = parse_frontmatter(text)
             files = [f for f in sd.rglob("*") if f.is_file() and ".git" not in f.parts]
             total = sum(f.stat().st_size for f in files)
@@ -770,7 +780,7 @@ S = {
     "imp_none_locked": ("\n[impact] 以上技能均未被自动化/Hook/路由/插件配置引用（就本工具可扫描的根而言）。",
                         "\n[impact] none of the above are referenced by automation/hook/routing/plugin configs (within scannable roots)."),
     # --- render_overrides ---
-    "ov_generic_1": ("// 通用模式（未识别宿主）没有程序化关闭通道，--overrides 不适用。",
+    "ov_generic_1": ("// [E-NOCLOSE] 通用模式（未识别宿主）没有程序化关闭通道，--overrides 不适用。",
                      "// Generic mode (unrecognized host) has no programmatic close channel; --overrides does not apply."),
     "ov_generic_2": ("//    请直接看报告的「可关闭候选 / 需人工确认」，再到宿主自带开关里手动处理。",
                      "//    See the report's \"close candidates / manual review\" and use the host's own toggles."),
@@ -808,6 +818,14 @@ S = {
                       "       Cause: {e}\n"
                       "       Try: protect critical skills with --protect <name> first; re-run after the log is fixed."),
     "ap_none": ("[apply] 没有可关闭候选，无需操作。", "[apply] no close candidates; nothing to do."),
+    "ap_abort": ("[apply] 已中止：未写入任何配置（备份副本仍在，可随时恢复）。",
+                 "[apply] Aborted: nothing was written (the backup copy is intact if one was made)."),
+    "err_settings_read": ("[E-CONF] 无法读取 settings.json —— 未做任何修改。\n       原因：{e}",
+                          "[E-CONF] Cannot read settings.json -- nothing was modified.\n       Cause: {e}"),
+    "err_settings_write": ("[E-CONF] 写入 settings.json 失败 —— 原文件保持不变。\n       原因：{e}",
+                           "[E-CONF] Writing settings.json failed -- the original file is unchanged.\n       Cause: {e}"),
+    "err_skill_read": ("[E-READ] 跳过读不到的技能目录：{d}（{e}）",
+                        "[E-READ] Skipped an unreadable skill directory: {d} ({e})"),
     "ap_dry": ("[dry-run] 未加 --yes，仅预览（不读写文件）：", "[dry-run] --yes missing; preview only (no files read or written):"),
     "ap_backup": ("[backup] settings.json -> {p}", "[backup] settings.json -> {p}"),
     "ap_new": ("[warn] 未找到 settings.json，将新建。", "[warn] settings.json not found; a new one will be created."),
@@ -815,7 +833,7 @@ S = {
     "ap_done_2": ("           确认后建议用 /skills 菜单按 Esc 落盘，便于统一查看）。",
                   "           afterwards use the /skills menu (press Esc to persist) to review them in one place)."),
     # --- resolve_agent ---
-    "ra_unknown": ("未知平台：{a}（可选：workbuddy / qwen / baidu / generic / auto）",
+    "ra_unknown": ("[E-PLATFORM] 未知平台：{a}（可选：workbuddy / qwen / baidu / generic / auto）",
                    "unknown platform: {a} (choose: workbuddy / qwen / baidu / generic / auto)"),
     "ra_baidu_missing": ("⚠️ 未找到 {label} 的本地技能目录（预期位于 {p}）。请用 --root 指向某个技能区域目录。",
                          "⚠️ {label} local skills dir not found (expected under {p}). Point --root at a skills region directory."),
@@ -829,7 +847,7 @@ S = {
                       "⚠️ {label} local skills dir not verified on this machine; specify --root."),
     "ra_qwen_missing": ("未检测到千问办公的技能目录（{p}）。若已安装，请用 --root 指向其 skills 目录。",
                         "QwenWork skills dir not found ({p}). If installed, point --root at its skills directory."),
-    "ra_missing": ("找不到技能目录：{p}", "skills directory not found: {p}"),
+    "ra_missing": ("[E-ROOT] 找不到技能目录：{p}", "[E-ROOT] skills directory not found: {p}"),
     # --- main ---
     "note_no_refs": ("[note] {label} 未找到可扫描的反向依赖根（自动化/Hook/路由配置），反向依赖锁定暂不可用；如有关键词触发器引用，请人工确认。",
                      "[note] {label}: no scannable reverse-dependency roots (automations/hooks/routing); reference locking unavailable — confirm trigger dependencies manually."),
@@ -886,11 +904,10 @@ def load_lang_pref():
 
 
 def save_lang_pref(mode: str) -> None:
-    """把语言偏好写入 LANG_CONFIG（仅由显式 --set-lang 触发的第二个受控写路径）。"""
-    LANG_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    LANG_CONFIG.write_text(
+    """把语言偏好写入 LANG_CONFIG（仅由显式 --set-lang 触发的第二个受控写路径）。原子写。"""
+    _write_text_atomic(
+        LANG_CONFIG,
         json.dumps({"language": mode}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
 
 
@@ -1122,10 +1139,48 @@ def backup_settings() -> pathlib.Path:
     return bak, settings
 
 
+def _read_text(path, retries: int = 2, delay: float = 0.5) -> str:
+    """读文本，遇「文件被占用」类 PermissionError 做有限重试。
+
+    Windows 上宿主（编辑器 / 同步盘 / 另一个 Agent 进程）短暂持有文件时，
+    首次 open 会失败；重试 1s×2 足以覆盖这类瞬时占用，仍失败则照常抛出，
+    由上层给出 [E-READ] 告警。
+    """
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return path.read_text(encoding="utf-8")
+        except PermissionError as e:
+            last = e
+            if attempt < retries:
+                time.sleep(delay)
+    raise last                                        # type: ignore[misc]
+
+
+def _write_text_atomic(path: pathlib.Path, text: str) -> None:
+    """原子写：先写同目录临时文件，再 os.replace 覆盖。
+
+    避免「写到一半被宿主读到」或「进程中途失败留下截断文件」——
+    对承载宿主配置的 settings.json 尤其重要。os.replace 在同一文件系统内是原子的。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():                              # replace 成功时 tmp 已不存在
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
 def apply_wb(leaves: list, yes: bool) -> None:
     """在你显式同意（--yes）下，把可关闭候选写入 WB 的 skillOverrides（off）。先自动备份。
 
     dry-run（未加 --yes）只预览，不读写任何文件。
+    写入走原子替换（临时文件 + os.replace），中途失败不会留下半截配置。
     """
     if not leaves:
         print(M("ap_none"))
@@ -1141,12 +1196,22 @@ def apply_wb(leaves: list, yes: bool) -> None:
         print(M("ap_backup", p=bak))
     else:
         print(M("ap_new"))
-    data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
+    try:
+        data = json.loads(_read_text(settings)) if settings.exists() else {}
+    except Exception as e:                            # noqa: BLE001 - 损坏也要给明确告警而非崩栈
+        print(M("err_settings_read", e=e), file=sys.stderr)
+        print(M("ap_abort"))
+        return
     ov = data.get("skillOverrides") or {}
     for lf in leaves:
         ov[lf] = "off"
     data["skillOverrides"] = ov
-    settings.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        _write_text_atomic(settings, json.dumps(data, ensure_ascii=False, indent=2))
+    except Exception as e:                            # noqa: BLE001
+        print(M("err_settings_write", e=e), file=sys.stderr)
+        print(M("ap_abort"))
+        return
     print(M("ap_done_1", n=len(leaves)))
     print(M("ap_done_2"))
 
