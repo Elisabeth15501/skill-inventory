@@ -67,7 +67,7 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
 | **WorkBuddy** | ✅ `~/.workbuddy/skills` | ✅ `usage-log.json` | ✅ `skillOverrides` 四态 | 出盘点 + 可关闭草稿；`--apply --yes` 在你同意下写入 `off` |
 | **千问办公** | ✅ `~/.qwenworkcn/skills` | ✅ 有（usage adapter 读取） | ❌ **无禁用开关**（实测） | 出盘点 + connector/UI 关闭说明，不代执行关闭 |
 | **百度搭子** | ✅ 本地沙箱（路径待验→`--root`） | ❌ 无 | ✅ 禁用开关 + 专家套件禁用 | 出盘点 + 关闭指引；独占「专家套件」治理维度 |
-| **通用档**（未知宿主，含天禧等云端沙箱） | ✅ `--root` 指定的目录 | ❌ 默认无（可用 `--usage-log` 指定） | ❌ 无关闭通道 | `--agent generic`：纯盘点 + 四档建议，全部落「需人工确认」，不产出关闭动作 |
+| **通用档**（未知宿主，含天禧等云端沙箱） | ✅ `--root` 指定，或 `--probe` 自动探测 | ❌ 默认无（可用 `--usage-log` 指定） | ❌ 无关闭通道 | `--agent generic`：纯盘点 + 四档建议，全部落「需人工确认」，不产出关闭动作 |
 
 > 原则：**未显式调用 ≠ 没用**。千问这类无关闭开关的平台，本工具只做「体检」，把「动刀」留给你手动处理，避免给出你根本执行不了的「关闭建议」。
 
@@ -150,7 +150,7 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
 
 | 规则 | 扫描器的说法 | 事实依据与回应 |
 |---|---|---|
-| **Ae1** 引用的工件未被完整检查 | 无法把 `scripts/skill_inventory.py` 完整纳入上下文检查 | **检查能力局限**。该脚本 v1.4.0 实测 1470 行，零第三方依赖（仅标准库，`yaml` 为可选加速项）。同一文件的**静态分析层结论为 Pass**（"No suspicious patterns detected"）。完整源码公开在 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查。findings 条数随脚本行数增长（7→11→12），与代码量正相关，不反映行为变化 |
+| **Ae1** 引用的工件未被完整检查 | 无法把 `scripts/skill_inventory.py` 完整纳入上下文检查 | **检查能力局限**。该脚本 v1.5.0 实测 1562 行，零第三方依赖（仅标准库，`yaml` 为可选加速项）。同一文件的**静态分析层结论为 Pass**（"No suspicious patterns detected"）。完整源码公开在 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查。findings 条数随脚本行数增长（7→11→12），与代码量正相关，不反映行为变化 |
 | **Lp1** 能力宽于声明 | 脚本会写盘，能力范围超出声明 | 声明已补全为**两处写目标 + 一份备份工件**（frontmatter `permissions` 与脚本头部声明块均可 grep 验证）：① `settings.json` 的 `skillOverrides` 键——需 `--apply --yes` 双显式 flag，缺一即 dry-run；② 语言偏好文件——需显式 `--set-lang`；③ `settings.json.bak.<ts>` 安全副本——仅在第①步落笔前生成，路径打印在输出里，从不回读。逐条见上方「行为契约」 |
 | **Session Persistence** | 存在跨会话驻留 | 无 cron / 启动项 / 守护进程 / 自我修改。语言偏好文件是显示偏好（单个 JSON 键），不基于它注册或排程任何东西，仅在下次运行时被读取一次；`--set-lang auto` 或删文件即恢复默认 |
 | **Anti-Refusal** | 文档出现「always / 始终」类措辞 | 已改为「报告语言固定为 X（随时可改回）」——描述的是**工具输出语言**，不构成对用户的服从承诺 |

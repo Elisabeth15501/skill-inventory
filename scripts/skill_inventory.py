@@ -843,6 +843,14 @@ S = {
                      "Use --root <skills-dir> to point at the directory to inventory (each subdirectory containing a SKILL.md counts as one skill)."),
     "ra_generic_3": ("可选：--usage-log <路径> 提供用量日志；--refs <路径> 提供反向依赖扫描根。",
                      "Optional: --usage-log <path> for a usage log; --refs <path> for reverse-dependency scan roots."),
+    "probe_hit": ("[probe] 发现技能目录：{label}（{n} 个技能）→ {p}",
+                  "[probe] Found skills directory: {label} ({n} skill(s)) -> {p}"),
+    "probe_miss": ("[E-ROOT] 自动探测没有找到任何含 SKILL.md 的目录。",
+                   "[E-ROOT] Auto-discovery found no directory containing a SKILL.md."),
+    "probe_hint": ("       下一步：--root <目录> 直接指定；或 --probe <目录>[,<目录>…] 把候选路径喂给它；\n"
+                   "       或设环境变量 SKILL_INVENTORY_ROOT=<目录>，让之后每次运行自动沿用。",
+                   "       Next: pass --root <dir>; or feed candidates via --probe <dir>[,<dir>...];\n"
+                   "       or set SKILL_INVENTORY_ROOT=<dir> so every later run reuses it."),
     "ra_unverified": ("⚠️ {label} 的本地技能目录尚未在本机验证，请用 --root 指定。",
                       "⚠️ {label} local skills dir not verified on this machine; specify --root."),
     "ra_qwen_missing": ("未检测到千问办公的技能目录（{p}）。若已安装，请用 --root 指向其 skills 目录。",
@@ -1216,7 +1224,72 @@ def apply_wb(leaves: list, yes: bool) -> None:
     print(M("ap_done_2"))
 
 
-def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
+def probe_skills_roots(extra: str = "") -> list:
+    """`--probe`：在常见位置找技能目录，返回按「技能数」降序的候选列表。
+
+    解决陌生宿主（天禧沙箱 / 自建 Agent / 容器环境）的可用性缺口——通用档原本
+    必须手写 `--root`，而 Agent 往往不知道宿主把技能装在哪。这里只做**只读**
+    存在性检查与浅层计数，不写任何文件、不递归全盘扫描（成本可控）。
+
+    返回 [{"path": Path, "label": str, "disabled": False, "count": int}, ...]
+    """
+    cands: list = []
+
+    def add(p, label: str) -> None:
+        try:
+            p = pathlib.Path(p).expanduser()
+        except Exception:                                   # noqa: BLE001 - 坏路径直接忽略
+            return
+        if p.is_dir() and not any(c["path"] == p for c in cands):
+            cands.append({"path": p, "label": label, "disabled": False, "count": 0})
+
+    # 1) 已知平台的真实路径（优先级最高，命中即最可能正确）
+    for key in ("workbuddy", "qwen"):
+        for p in PLATFORMS[key]["skills_root"]:
+            add(p, PLATFORMS[key]["label_en"])
+    # 2) 其他办公 Agent / 通用约定的家目录位置
+    for rel, label in (
+        (".claude/skills", "Claude Code"),
+        (".codex/skills", "Codex"),
+        (".gemini/skills", "Gemini"),
+        (".agents/skills", "AGENTS 约定"),
+        (".skills", "通用家目录"),
+        ("skills", "家目录 skills"),
+        (".config/skills", "XDG 配置目录"),
+    ):
+        add(HOME / rel, label)
+    # 3) 工作目录附近（沙箱里技能常与工作区同级）
+    cwd = pathlib.Path.cwd()
+    for rel in ("skills", ".skills", "../skills", "../../skills"):
+        add(cwd / rel, "工作目录附近")
+    # 3b) 家目录下一层的 <某宿主>/skills 布局（my-agent/skills 这类最常见）——只 glob 一次，成本可控
+    try:
+        for child in sorted(HOME.glob("*")):
+            if child.is_dir():
+                add(child / "skills", f"家目录子项 {child.name}/skills")
+                add(child / ".skills", f"家目录子项 {child.name}/.skills")
+    except OSError:
+        pass
+    # 4) 环境变量显式指定（最高优先级，排在最前）
+    env = os.environ.get("SKILL_INVENTORY_ROOT", "").strip()
+    if env:
+        add(env, "环境变量 SKILL_INVENTORY_ROOT")
+    # 5) --probe 后面手跟的路径（可重复逗号分隔）
+    for part in (extra or "").split(","):
+        if part.strip():
+            add(part.strip(), "--probe 指定")
+
+    for c in cands:
+        try:                                               # 只看两层，够用且便宜
+            c["count"] = sum(1 for _ in c["path"].glob("*/*/SKILL.md")) + \
+                         sum(1 for _ in c["path"].glob("*/SKILL.md"))
+        except OSError:
+            c["count"] = 0
+    live = [c for c in cands if c["count"] > 0]
+    return sorted(live or cands, key=lambda c: (-c["count"], str(c["path"])))
+
+
+def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str, probe_arg: str = ""):
     """解析平台档位，返回 (profile, roots, usage_path, agent_key)。
 
     roots: list of {"path","label","disabled"}；百度为自动探测的多根。
@@ -1249,15 +1322,30 @@ def resolve_agent(agent_arg: str, root_arg: str, usage_arg: str):
         roots = [{"path": pathlib.Path(root_arg), "label": "", "disabled": False}]
     else:
         sr = profile["skills_root"]
-        if not sr:
+        if not sr and probe_arg is not None:
+            # 通用档 + --probe：自动探测（陌生宿主的关键可用性补强）
+            found = probe_skills_roots(probe_arg)
+            if found:
+                for c in found:
+                    print(M("probe_hit", label=c["label"], n=c["count"], p=c["path"]))
+                roots = [{"path": c["path"], "label": c["label"], "disabled": False}
+                         for c in found]
+            else:
+                print(M("probe_miss"), file=sys.stderr)
+                print(M("ra_generic_1"), file=sys.stderr)
+                print(M("ra_generic_2"), file=sys.stderr)
+                print(M("probe_hint"), file=sys.stderr)
+                return None, None, None, None
+        elif not sr:
             if agent == "generic":
                 print(M("ra_generic_1"), file=sys.stderr)
                 print(M("ra_generic_2"), file=sys.stderr)
-                print(M("ra_generic_3"), file=sys.stderr)
+                print(M("probe_hint"), file=sys.stderr)
             else:
                 print(M("ra_unverified", label=plabel(profile)), file=sys.stderr)
             return None, None, None, None
-        roots = [{"path": p, "label": "", "disabled": False} for p in sr]
+        else:
+            roots = [{"path": p, "label": "", "disabled": False} for p in sr]
     missing = [r for r in roots if not r["path"].is_dir()]
     if missing:
         for r in missing:
@@ -1332,6 +1420,9 @@ def main() -> int:
                     help="Target platform (determines close channel) 目标平台档位；auto 探测失败回落 generic")
     ap.add_argument("--root", default="",
                     help="Skills directory (overrides platform default) 技能目录")
+    ap.add_argument("--probe", nargs="?", const="", default=None, metavar="DIR[,DIR...]",
+                    help="Auto-discover skill directories on unknown hosts (generic mode); "
+                         "optional extra paths to probe 可选：自动探测技能目录（陌生宿主兜底）")
     ap.add_argument("--usage-log", default="",
                     help="Usage log path (no log -> telemetry-gap degradation) 用量日志路径")
     ap.add_argument("--unused", action="store_true",
@@ -1386,7 +1477,8 @@ def main() -> int:
         print_lang_options()
         return 0
 
-    profile, roots, usage_path, agent_key = resolve_agent(args.agent, args.root, args.usage_log)
+    profile, roots, usage_path, agent_key = resolve_agent(args.agent, args.root, args.usage_log,
+                                                          args.probe)
     if roots is None:
         return 2
 

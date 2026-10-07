@@ -26,7 +26,7 @@ description: >-
   英文文档见 SKILL.en.md。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.4.0
+version: 1.5.0
 allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json), Write(~/.workbuddy/skill-inventory.json), Edit(~/.workbuddy/skill-inventory.json)
 metadata:
   openclaw:
@@ -98,7 +98,7 @@ metadata:
 
 | 输入 | 必需 | 说明 |
 |------|------|------|
-| 技能目录 | ✅（已知平台可自动探测） | 每个子目录 = 一个技能（含 `SKILL.md` 即可）；其他平台用 `--root <目录>` |
+| 技能目录 | ✅（已知平台可自动探测） | 每个子目录 = 一个技能（含 `SKILL.md` 即可）；其他平台用 `--root <目录>`，或直接 `--probe` 让它自己找 |
 | 用量日志 | 可选 | `--usage-log <路径>`；WorkBuddy 自动探测 `usage-log.json` |
 | 反向依赖根 | 可选 | `--refs <路径>`：自动化 / Hook / 路由配置等可能隐式引用技能的文件或目录 |
 | 受保护清单 | 可选 | `--protect a,b,c` 或 `--protect-file`；另内置安全/审计类启发式 |
@@ -134,6 +134,7 @@ metadata:
 | `python scripts/skill_inventory.py --agent qwen` | 千问办公（调用记录；关闭走连接器/UI） |
 | `python scripts/skill_inventory.py --agent baidu` | 百度搭子（多根探测；无遥测 → 全库需人工确认） |
 | `python scripts/skill_inventory.py --agent generic --root <dir>` | 通用档：任意平台/自定义目录 |
+| `python scripts/skill_inventory.py --agent generic --probe [dirs]` | 陌生宿主让工具**自己找**技能目录（可跟逗号分隔的候选路径；也认 `SKILL_INVENTORY_ROOT` 环境变量） |
 | `python scripts/skill_inventory.py --impact <名称>` | 单技能影响深查（关闭前审阅） |
 | `python scripts/skill_inventory.py --json` | 机器可读 JSON |
 | `python scripts/skill_inventory.py --show-lang` | 查看语言设置与选项说明 |

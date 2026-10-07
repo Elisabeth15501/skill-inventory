@@ -50,7 +50,7 @@ inventories and assesses skill libraries.
 
 | Input | Required | Notes |
 |-------|----------|-------|
-| Skills directory | ✅ (auto-detected for known platforms) | each subdirectory containing a `SKILL.md` counts as one skill; use `--root <dir>` otherwise |
+| Skills directory | ✅ (auto-detected for known platforms) | each subdirectory containing a `SKILL.md` counts as one skill; use `--root <dir>` otherwise, or just `--probe` to let the tool find it |
 | Usage log | optional | `--usage-log <path>`; WorkBuddy's `usage-log.json` is auto-detected |
 | Reverse-dependency roots | optional | `--refs <path>`: automation/hook/routing configs that may reference skills implicitly |
 | Protect list | optional | `--protect a,b,c` or `--protect-file`; a safety/audit keyword heuristic is built in |
@@ -87,6 +87,7 @@ Pure local static analysis — no network, no subprocesses (sandbox red-line com
 | `python scripts/skill_inventory.py --agent qwen` | QwenWork (usage records; close via connector/UI) |
 | `python scripts/skill_inventory.py --agent baidu` | Baidu DuMate (multi-root; no telemetry → all manual review) |
 | `python scripts/skill_inventory.py --agent generic --root <dir>` | generic mode: any platform / custom directory |
+| `python scripts/skill_inventory.py --agent generic --probe [dirs]` | let the tool **find** skill directories on unknown hosts (optional comma-separated candidates; `SKILL_INVENTORY_ROOT` env var also honored) |
 | `python scripts/skill_inventory.py --impact <name>` | single-skill impact deep dive |
 | `python scripts/skill_inventory.py --json` | machine-readable JSON |
 | `python scripts/skill_inventory.py --show-lang` | show language setting and options |
