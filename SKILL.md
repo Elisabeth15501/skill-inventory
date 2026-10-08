@@ -26,7 +26,7 @@ description: >-
   英文文档见 SKILL.en.md。
 tags: [skill-management, efficiency, token-optimization, inventory, devops]
 author: Elisabeth15501
-version: 1.5.0
+version: 1.5.1
 allowed-tools: Bash(python scripts/skill_inventory.py:*), Read, Glob, Grep, Write(~/.workbuddy/settings.json), Edit(~/.workbuddy/settings.json), Write(~/.workbuddy/skill-inventory.json), Edit(~/.workbuddy/skill-inventory.json)
 metadata:
   openclaw:
@@ -142,8 +142,8 @@ metadata:
 | `python scripts/skill_inventory.py --lang zh\|en` | 本次运行的语言覆盖 |
 | `python scripts/skill_inventory.py --selftest` | 自测内置 frontmatter 解析器（零依赖，可离线跑） |
 
-流程：`auto 探测平台 → 失败回落 generic 通用档`。通用档**必须** `--root` 指技能目录；
-无用量日志自动降级为「不判任何技能可关闭」；`--refs` 可补充反向依赖扫描根。
+流程：`auto 探测平台 → 失败回落 generic 通用档`。通用档用 `--probe` 自动找技能目录（找不到再退回
+`--root <目录>` 手填）；无用量日志自动降级为「不判任何技能可关闭」；`--refs` 可补充反向依赖扫描根。
 
 ## 6. 数据源优先级
 

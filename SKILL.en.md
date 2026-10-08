@@ -95,9 +95,9 @@ Pure local static analysis — no network, no subprocesses (sandbox red-line com
 | `python scripts/skill_inventory.py --lang zh\|en` | language override for this run |
 | `python scripts/skill_inventory.py --selftest` | self-test the built-in frontmatter parser (zero deps, offline) |
 
-Flow: `auto-detect platform → fall back to generic mode`. Generic mode **requires** `--root`;
-without a usage log the tool degrades to "nothing judged closeable"; `--refs` adds
-reverse-dependency scan roots.
+Flow: `auto-detect platform → fall back to generic mode`. In generic mode `--probe` looks for the
+skills directory itself (fall back to `--root <dir>` if it finds nothing); without a usage log the tool
+degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan roots.
 
 ## 6. Data-source precedence
 
