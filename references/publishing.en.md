@@ -27,7 +27,8 @@
 git archive HEAD | tar -x -C "$PUB_TMP" && cd "$PUB_TMP"
 rm -f .gitignore LICENSE .clawhubignore references/.gitkeep config.yaml \
       references/publishing.md references/publishing.en.md \
-      references/usage-triggers.md references/usage-triggers.en.md
+      references/usage-triggers.md references/usage-triggers.en.md \
+      references/check_skill_md.py
 skillhub publish "$PUB_TMP" --version X.Y.Z --changelog "..." --json
 # Success: ok=true + reviewStatus/contentAuditStatus/securityScanStatus all pending
 

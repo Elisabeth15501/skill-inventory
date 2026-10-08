@@ -13,3 +13,6 @@ references/publishing.en.md
 references/usage-triggers.md
 references/usage-triggers.en.md
 
+# 维护者自检脚本：属仓库工程设施，用户不需要；多一个 .py 进包会增加扫描面
+references/check_skill_md.py
+
