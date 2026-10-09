@@ -94,7 +94,7 @@ never get close actions**, only a report plus manual-removal instructions:
    (e.g. the `/skills` menu, press Esc to persist) are preferred.
    **Backup artifact:** before the close write, `--apply --yes` creates a
    `settings.json.bak.<timestamp>` safety copy beside `settings.json` and prints its path; the
-   copy is inert, never read back, and you can delete it at any time.
+   copy is inert, never read back, and you may manually delete it when you no longer need it.
 3. **Write path 2 (language preference; needs your explicit command).** `--set-lang auto|zh|en`
    writes the report language preference to `~/.workbuddy/skill-inventory.json` (that one key
    only); a user-controlled display preference, revertible via `--set-lang auto` or by deleting

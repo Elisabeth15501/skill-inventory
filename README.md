@@ -82,7 +82,7 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
    每份报告和 `--overrides` 输出都会显式标注这条写路径——本工具**不会**静默或自行关闭任何技能。
    优先引导宿主自带开关（如 `/skills` 菜单，按 Esc 才落盘）。
    **备份工件**：`--apply --yes` 落笔前在 `settings.json` 旁生成 `settings.json.bak.<时间戳>`
-   安全副本，路径打印在输出里；副本惰性、不会被回读，可随时自行删除。
+   安全副本，路径打印在输出里；副本惰性、不会被回读，可手动删除。
 3. **写路径二（语言偏好，需你显式触发）。** `--set-lang auto|zh|en` 把报告语言偏好写入
    `~/.workbuddy/skill-inventory.json`（仅此一个键）；这是一项用户可控的显示偏好，
    `--set-lang auto` 或删除该文件即恢复默认。

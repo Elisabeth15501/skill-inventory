@@ -128,7 +128,7 @@ degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan ro
   capabilities — `--overrides --apply --yes` (dry-run without `--yes`, rejected on non-closable
   platforms) and `--set-lang` (writes the language preference file only). Both are labeled
   explicitly in every report and output, and the close write always produces a timestamped
-  `settings.json.bak.<ts>` safety copy first, whose path is printed so you can delete it.
+  `settings.json.bak.<ts>` safety copy first, whose path is printed so you may delete it manually when no longer needed.
 - **No autonomous residency**: no cron jobs, no startup scripts, no daemons, no
   self-modification (i.e. no autonomous execution). Cross-session **visible writes** are limited
   to two user-consented, disclosed and reversible capabilities — the `off` entries in
