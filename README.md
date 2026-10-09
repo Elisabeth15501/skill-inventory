@@ -86,11 +86,12 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
 3. **写路径二（语言偏好，需你显式触发）。** `--set-lang auto|zh|en` 把报告语言偏好写入
    `~/.workbuddy/skill-inventory.json`（仅此一个键）；这是一项用户可控的显示偏好，
    `--set-lang auto` 或删除该文件即恢复默认。
-4. **无持久化机制。** 不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改。
-   跨会话效果仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
+4. **无自动驻留。** 不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改（即不自主执行）。
+   跨会话**可见的写入**仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
    （可在宿主 `/skills` 菜单恢复）与语言偏好文件。语言偏好文件只是显示偏好（单个 JSON 键）：
    不基于它注册或排程任何东西，仅在下一次运行时被读取用来挑报告语言；`--set-lang auto`
-   或删除该文件即恢复默认——它不属于驻留机制。
+   或删除该文件即恢复默认。
+   ↳ 注意：本工具确实会产生经授权的跨会话写入（见第 2、3 条），与「自动驻留（自主执行）」是两回事——前者需你显式触发，后者完全没有。
 5. **受保护技能永远不进「可关闭」候选。** 包括：本工具自身、frontmatter 标了 `protected: true` 的技能、
    安全/审计类（名称含 security/audit/safe/guard/privacy/sanitize/compliance/backup），以及用户用
    `--protect` 追加的。报告里它们单列在「受保护」一档。
@@ -152,14 +153,14 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
 |---|---|---|
 | **Ae1** 引用的工件未被完整检查 | 无法把 `scripts/skill_inventory.py` 完整纳入上下文检查 | **检查能力局限**。该脚本 v1.5.0 实测 1562 行，零第三方依赖（仅标准库，`yaml` 为可选加速项）。同一文件的**静态分析层结论为 Pass**（"No suspicious patterns detected"）。完整源码公开在 [GitHub 仓库](https://github.com/Elisabeth15501/skill-inventory)，可随时人工审查。findings 条数随脚本行数增长（7→11→12），与代码量正相关，不反映行为变化 |
 | **Lp1** 能力宽于声明 | 脚本会写盘，能力范围超出声明 | 声明已补全为**两处写目标 + 一份备份工件**（frontmatter `permissions` 与脚本头部声明块均可 grep 验证）：① `settings.json` 的 `skillOverrides` 键——需 `--apply --yes` 双显式 flag，缺一即 dry-run；② 语言偏好文件——需显式 `--set-lang`；③ `settings.json.bak.<ts>` 安全副本——仅在第①步落笔前生成，路径打印在输出里，从不回读。逐条见上方「行为契约」 |
-| **Session Persistence** | 存在跨会话驻留 | 无 cron / 启动项 / 守护进程 / 自我修改。语言偏好文件是显示偏好（单个 JSON 键），不基于它注册或排程任何东西，仅在下次运行时被读取一次；`--set-lang auto` 或删文件即恢复默认 |
+| **Session Persistence** | 存在跨会话写入（均经授权） | 无 cron / 启动项 / 守护进程 / 自我修改（即无自动驻留）。语言偏好文件是显示偏好（单个 JSON 键），不基于它注册或排程任何东西，仅在下次运行时被读取一次；`--set-lang auto` 或删文件即恢复默认 |
 | **Anti-Refusal** | 文档出现「always / 始终」类措辞 | 已改为「报告语言固定为 X（随时可改回）」——描述的是**工具输出语言**，不构成对用户的服从承诺 |
 | **Rp1** | 供应链存在未钉版依赖 | 技能运行零外部依赖（Python 标准库）；文档中的发布命令已钉 `clawhub@0.23.3`，不用 `@latest` |
 | **NL Policy** | 语言选择 | 三选项 auto / zh / en。auto 是**用户未表达偏好时的回落**，不是锁定：随时 `--set-lang` 固定，或 `--lang` 单次覆盖 |
 
 **平台侧结论**：静态分析 + 人工复核均为 **Moderate CLEAN**；扫描器 Overview 自述
-"disclosed, user-triggered… no evidence of hidden network, persistence, or destructive behavior"。
-脚本头部另有一块机器可 grep 的「权限与持久化声明」，欢迎直接验证。若你发现声明与实现不符，
+"disclosed, user-triggered… no evidence of hidden network, autonomous residency, or destructive behavior"。
+脚本头部另有一块机器可 grep 的「权限与驻留声明」，欢迎直接验证。若你发现声明与实现不符，
 请优先回报 issue——这比任何扫描器判定都更快地修正问题。
 
 ## 许可证

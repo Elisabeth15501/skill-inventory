@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """skill-inventory —— 办公型 Agent 的技能库盘点与效能体检 / Skill inventory & health check for office agents.
 
@@ -13,7 +12,7 @@
     python skill_inventory.py --set-lang auto      # 保存语言偏好：auto/zh/en（保存后立即生效）
     python skill_inventory.py --show-lang          # 查看当前语言设置、可选项及切换方式
 
-权限与持久化声明 / Permission & persistence declaration
+权限与驻留声明 / Permission & residency declaration
 ------------------------------------------------------
 WRITE SCOPE: two target paths + one disclosed backup artifact, all declared here:
   1. ~/.workbuddy/settings.json -> key "skillOverrides", via --overrides --apply --yes
@@ -31,13 +30,13 @@ its own config open) are retried twice at 0.5s before the error is surfaced.
 ERROR CODES: E-LOG (usage log missing/unreadable) · E-ROOT (skills dir not found) ·
 E-PLATFORM (unknown --agent) · E-NOCLOSE (host has no programmatic close channel) ·
 E-CONF (settings.json read/write failed; nothing modified) · E-READ (one skill dir unreadable, skipped).
-PERSISTENCE: none. No cron jobs, no startup scripts, no daemons, no self-modification.
-The language preference file is a display preference only (a single JSON key): nothing is
-scheduled or registered from it, it is read solely to pick the report language on the next
-run, and --set-lang auto or deleting the file restores the default — it is not a persistence
-mechanism. Cross-session effects are limited to the two user-controlled writes above: the
-consented "off" entries in skillOverrides (reversible at any time via the host's /skills
-menu) and the language preference file (reversible via --set-lang auto or file deletion).
+AUTONOMOUS RESIDENCY: none (no cron, startup script or daemon; no self-modification). This tool
+performs no autonomous execution. It does perform two user-consented, reversible cross-session
+writes — the "off" entries in skillOverrides (reversible via the host's /skills menu) and the
+language preference file — plus one backup artifact. The language preference file is a display
+preference only (a single JSON key): nothing is scheduled or registered from it, it is read
+solely to pick the report language on the next run, and --set-lang auto or deleting the file
+restores the default. These are authorized cross-session writes, not autonomous residency.
 NETWORK: none. CHILD PROCESSES: none (no shell-outs, no external program invocation).
 / 网络：无。子进程：无（不执行 shell、不调用外部程序）。
 

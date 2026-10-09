@@ -61,11 +61,13 @@ Therefore:
    (dry-run without `--yes`; before the write it creates a `settings.json.bak.<timestamp>` safety
    copy and prints its path) and `--set-lang` (writes the report language preference to
    `~/.workbuddy/skill-inventory.json`).
-5. **Persistence cut**: no cron jobs, no startup scripts, no daemons, no self-modification. The
-   language preference file is a **display preference** only (a single JSON key) — nothing is
-   scheduled or registered from it, it is read solely to pick the report language on the next run,
-   and `--set-lang auto` or deleting it restores the default; it is not a persistence mechanism.
+5. **No autonomous residency** (no autonomous execution): no cron jobs, no startup scripts, no
+   daemons, no self-modification. The language preference file is a **display preference** only
+   (a single JSON key) — nothing is scheduled or registered from it, it is read solely to pick the
+   report language on the next run, and `--set-lang auto` or deleting it restores the default.
    The `off` entries in `skillOverrides` are reversible via the host's `/skills` menu.
+   ↳ The tool does perform authorized cross-session writes (see item 4, "two write targets + one
+   backup artifact") — that is distinct from autonomous residency.
 
 ## 4. Open boundaries needing user confirmation
 

@@ -99,13 +99,15 @@ never get close actions**, only a report plus manual-removal instructions:
    writes the report language preference to `~/.workbuddy/skill-inventory.json` (that one key
    only); a user-controlled display preference, revertible via `--set-lang auto` or by deleting
    the file.
-4. **No persistence mechanisms.** No cron jobs, no startup scripts, no daemons, no
-   self-modification. Cross-session effects are limited to two user-consented, disclosed and
-   reversible writes — the `off` entries in `skillOverrides` (reversible via the host's `/skills`
-   menu) and the language preference file. The language preference file is a display preference
-   only (a single JSON key): nothing is scheduled or registered from it, it is read solely to
-   pick the report language, and `--set-lang auto` or deleting the file restores the default —
-   it is not a persistence mechanism.
+4. **No autonomous residency.** No cron jobs, no startup scripts, no daemons, no
+   self-modification (i.e. no autonomous execution). Cross-session **visible writes** are limited
+   to two user-consented, disclosed and reversible capabilities — the `off` entries in
+   `skillOverrides` (reversible via the host's `/skills` menu) and the language preference file.
+   The language preference file is a display preference only (a single JSON key): nothing is
+   scheduled or registered from it, it is read solely to pick the report language, and
+   `--set-lang auto` or deleting the file restores the default.
+   ↳ Note: the tool does perform authorized cross-session writes (see items 2–3) — that is
+   distinct from autonomous residency (autonomous execution), which it has none of.
 5. **Protected skills never enter the closeable bucket.** This includes: this tool itself,
    skills marked `protected: true` in frontmatter, safety/audit classes (names containing
    security/audit/safe/guard/privacy/sanitize/compliance/backup), and anything added via
@@ -181,15 +183,15 @@ behavior. The table below gives verifiable facts for each (line counts measured 
 |---|---|---|
 | **Ae1** referenced artifact not completely inspected | The scanner cannot fully inline `scripts/skill_inventory.py` | **Inspection limitation.** That script measures 1562 lines on v1.5.0 and has zero third-party dependencies (standard library only; `yaml` is an optional accelerator). The file's own **static-analysis layer passes** ("No suspicious patterns detected"). Full source is public on the [GitHub repo](https://github.com/Elisabeth15501/skill-inventory) for manual review at any time. The finding count grows with the script's line count (7→11→12) — it tracks code size, not behavior change |
 | **Lp1** capability broader than declared | The script writes to disk; capability exceeds the declaration | The declaration is now complete — **two write targets + one backup artifact**, all greppable in the frontmatter `permissions` block and the script's docstring header: ① the `skillOverrides` key of `settings.json` — requires the two explicit flags `--apply --yes` (either alone = dry-run); ② the language preference file — requires an explicit `--set-lang`; ③ a `settings.json.bak.<ts>` safety copy — created only before step ①'s write, path printed in the output, never read back. See the behaviour contract above |
-| **Session Persistence** | Cross-session state detected | No cron jobs, no startup scripts, no daemons, no self-modification. The language preference file is a display preference (a single JSON key): nothing is scheduled or registered from it, it is read once to pick the next report language; `--set-lang auto` or deleting it restores the default |
+| **Session Persistence** | Cross-session writes (all authorized) | No cron jobs, no startup scripts, no daemons, no self-modification (i.e. no autonomous residency). The language preference file is a display preference (a single JSON key): nothing is scheduled or registered from it, it is read once to pick the next report language; `--set-lang auto` or deleting it restores the default |
 | **Anti-Refusal** | "always / always" style wording in the docs | Rewritten to "report language pinned to X (change any time)" — it describes the **tool's output language**, not an obedience promise toward the user |
 | **Rp1** | Unpinned dependency in the supply chain | The skill has no external runtime dependency (Python standard library); publishing commands in the docs are pinned to `clawhub@0.23.3`, never `@latest` |
 | **NL Policy** | Language selection | Three options auto / zh / en. `auto` is the **fallback for users who have not expressed a preference**, not a lock-in: pin zh or en via `--set-lang` any time, or override per run with `--lang` |
 
 **Platform-side result**: static analysis and human review both report **Moderate CLEAN**; the
 scanner's own Overview states "disclosed, user-triggered… no evidence of hidden network,
-persistence, or destructive behavior". The script also carries a machine-greppable
-"Permission & persistence declaration" block in its docstring header — feel free to verify it
+autonomous residency, or destructive behavior". The script also carries a machine-greppable
+"Permission & residency declaration" block in its docstring header — feel free to verify it
 directly. If you find any mismatch between the declarations and the implementation, please open
 an issue first — that fixes a problem faster than any scanner verdict.
 

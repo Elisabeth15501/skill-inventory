@@ -35,7 +35,8 @@ metadata:
     permissions:
       network: none
       subprocess: none
-      persistence: none
+      persistence: "no autonomous residency (no cron, startup script or daemon); two consent-gated config writes and one backup artifact DO survive the run — see filesystem.write"
+      capabilities: ["file-read", "file-write"]
       filesystem:
         read: "skills directories, usage logs, automation/hook/routing/plugin configs"
         write: >-
@@ -48,7 +49,7 @@ metadata:
           ({"language": "auto|zh|en"}) via the explicit --set-lang flag — a user-controlled
           display preference: not loaded automatically at startup, nothing scheduled or
           registered from it, reversible via --set-lang auto or by deleting the file;
-          not a persistence mechanism.
+          this is an authorized cross-session write, not autonomous residency.
           (3) creates ONE disclosed backup artifact during --apply --yes: a timestamped copy
           ~/.workbuddy/settings.json.bak.<YYYYMMDD-HHMMSS> written beside settings.json before
           it is modified (inert safety copy; its path is printed to the user; never read back).
@@ -166,11 +167,13 @@ metadata:
   它具备两项受控写能力，均需显式授权并在输出中标注：`--overrides --apply --yes`（缺
   `--yes` 即 dry-run、不可关平台拒绝）与 `--set-lang`（只写语言偏好文件）；此外 `--apply --yes`
   落笔前必先生成 settings.json 备份副本（路径打印在输出里，可自行删除）。
-- **无持久化机制**：不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改。
-  跨会话效果仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
+- **无自动驻留**：不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改（即不自主执行）。
+  跨会话**可见的写入**仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
   （可在宿主 `/skills` 菜单恢复）与语言偏好文件。语言偏好文件只是显示偏好（单个 JSON 键）：
   不基于它注册或排程任何东西，仅在下一次运行时被读取用来挑报告语言；`--set-lang auto`
-  或删除该文件即恢复默认——它不属于驻留机制。
+  或删除该文件即恢复默认。
+  ↳ 注意：本工具**确实会产生经授权的跨会话写入**（见上方「两处写目标 + 一份备份工件」），
+  这与「自动驻留（自主执行）」是两回事——前者需你显式触发，后者我们完全没有。
 - **未显式调用 ≠ 没用**：关键词触发器、专家/连接器组件的间接调用在用量日志里完全无痕——这是结构性盲区，靠反向依赖扫描 + 用户确认双层兜底。
 - **遥测缺口不判死**：无用量日志或日志读取失败时，全库落「需人工确认」，不输出可关闭项——宁可少报，不可误杀。
 - **受保护技能永不进候选**：本工具自身、`protected: true`、安全/审计类、被引用锁定、用户 `--protect` 追加。

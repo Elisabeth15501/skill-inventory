@@ -129,13 +129,16 @@ degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan ro
   platforms) and `--set-lang` (writes the language preference file only). Both are labeled
   explicitly in every report and output, and the close write always produces a timestamped
   `settings.json.bak.<ts>` safety copy first, whose path is printed so you can delete it.
-- **No persistence mechanisms**: no cron jobs, no startup scripts, no daemons, no
-  self-modification. Cross-session effects are limited to two user-consented, disclosed and
-  reversible writes — the `off` entries in `skillOverrides` (reversible via the host's `/skills`
-  menu) and the language preference file. The language preference file is a display preference
-  only (a single JSON key): nothing is scheduled or registered from it, it is read solely to
-  pick the report language, and `--set-lang auto` or deleting the file restores the default —
-  it is not a persistence mechanism.
+- **No autonomous residency**: no cron jobs, no startup scripts, no daemons, no
+  self-modification (i.e. no autonomous execution). Cross-session **visible writes** are limited
+  to two user-consented, disclosed and reversible capabilities — the `off` entries in
+  `skillOverrides` (reversible via the host's `/skills` menu) and the language preference file.
+  The language preference file is a display preference only (a single JSON key): nothing is
+  scheduled or registered from it, it is read solely to pick the report language, and
+  `--set-lang auto` or deleting the file restores the default.
+  ↳ Note: this tool **does perform authorized cross-session writes** (see the "two write targets
+  + backup artifact" item above) — that is distinct from autonomous residency (autonomous
+  execution), which we have none of.
 - **"No usage record" is not "unused"**: keyword triggers and expert/connector-internal calls
   leave no trace in usage logs — a structural blind spot covered by reverse-dependency scanning
   plus user confirmation.
