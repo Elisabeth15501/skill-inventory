@@ -99,7 +99,87 @@ Flow: `auto-detect platform → fall back to generic mode`. In generic mode `--p
 skills directory itself (fall back to `--root <dir>` if it finds nothing); without a usage log the tool
 degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan roots.
 
-## 6. Data-source precedence
+## 6. What a real run actually prints
+
+After running `python scripts/skill_inventory.py` once, the terminal prints the following
+structure (excerpt, WorkBuddy mode, English):
+
+```text
+ℹ  Telemetry scope: the usage log covers explicit invocations only (T1). Auto-mounting,
+   scheduled tasks, hooks and expert-internal calls (T2–T6) are not counted — "has usage
+   records" ≠ "only used explicitly", and "no usage records" ≠ "unused" (reverse-dependency
+   scanning only covers discoverable config roots).
+
+Platform                        WorkBuddy
+Total skills                    59    (market-installed 29 / self-made or edited 30)
+Has usage records               27
+Protected (do not close)        6
+Close candidates                19    (still require per-item human confirmation)
+Manual review                   7
+                       19,665 chars  ≈ 6,912 tokens / per conversation turn
+
+Directory                                     Lines    KB    Source        Last mod    Uses   Last used
+--------------------------------------------------------------------------------------
+agnes-ai                            ⚠     537    23.9    self-made 2026-10-09  0       —
+ai-weekly                               168  2734.0    self-made 2026-10-09  1  2026-10-05
+skill-publish-gate                      211   324.7    self-made 2026-10-09  2  2026-10-09
+skill-inventory                     🔒     91    52.1    self-made 2026-09-28  0       —
+office-token-booster                  375   653.2    self-made 2026-09-25  4  2026-08-21
+skill-creator                           356    52.6    market  2026-06-30  17  2026-08-27
+
+🔻 Close candidates: no usage record AND untouched for 30+ days (19 items)
+   ⚠ Suggestions only — do NOT close without your explicit confirmation; first confirm no
+     keyword / expert / automation dependency.
+  bug-fixing                                667 lines  2026-08-04
+  log-analyzer                              501 lines  2026-08-04
+  code-fix                                  262 lines  2026-08-04
+
+🔒 Protected (do not close): 6 items
+  skill-inventory                     (this tool itself; never enters candidates)
+  skill-clean-audit                   (safety/audit heuristic hit)
+  security-audit                      (name contains "security")
+  ⋯
+```
+
+Legend: `⚠` = recently modified but no usage record (goes to "manual review");
+`🔒` = protected (never enters candidates); `—` = no usage record.
+Lines/KB = line count and size of that skill's `SKILL.md`.
+
+**Machine-readable (`--json`)**: adding `--json` emits a JSON object whose top-level keys
+are always English (unaffected by the language setting):
+
+```json
+{
+  "agent": "workbuddy",
+  "can_close": true,
+  "rows": [
+    { "name": "office-token-booster", "lines": 375, "kb": 653.2,
+      "from_market": false, "last_modified": "2026-09-25", "last_used": "2026-08-21",
+      "uses": 4, "protected": false, "locked": false, "referenced_by": [] }
+  ],
+  "buckets": { "protected": [ "skill-inventory" ], "keep": [ "⋯" ],
+               "cleanup": [ "bug-fixing" ], "review": [ "⋯" ] },
+  "telemetry_gap": false,
+  "telemetry_scope": "t1-only",
+  "cannot_close": false
+}
+```
+
+The four `buckets`: `protected` (protected, do not close) / `keep` (has usage records,
+retain) / `cleanup` (close candidates, still need human confirmation) / `review`
+(manual review). `telemetry_gap=true` means no telemetry, so the report contains no
+close candidates.
+
+**Self-test (`--selftest`)**: verifies the built-in fallback parser against PyYAML's
+block-scalar semantics; runs offline:
+
+```text
+[selftest] frontmatter block-scalar semantics
+  8 cases passed / 0 failed (reference: PyYAML)
+  [OK] SKILL.md fallback parse: version=1.5.1, description 1390 chars
+```
+
+## 7. Data-source precedence
 
 1. **Platform usage log** (highest confidence): explicit invocations only (T1); auto-mounting,
    scheduled tasks, hooks and expert-internal calls (T2–T6) are invisible — the report states
@@ -110,7 +190,7 @@ degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan ro
    **never a close justification on its own**.
 4. **User confirmation** (final say): every close candidate requires per-item human confirmation.
 
-## 7. User confirmation points
+## 8. User confirmation points
 
 - **The tool never closes a skill on its own.** The close write path runs only with your explicit
   authorization — pass `--overrides --apply --yes` on closable platforms (WorkBuddy family); the
@@ -121,7 +201,7 @@ degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan ro
 - **Close candidates**: review the impact preview (`--impact <name>`) first; confirm there is no
   keyword-trigger / expert / automation dependency.
 
-## 8. Risk boundaries
+## 9. Risk boundaries
 
 - **Read-only by default; two disclosed, consent-gated write targets plus one backup artifact**:
   no config writes and no disable/delete calls unless you explicitly authorize one of the two
@@ -152,7 +232,27 @@ degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan ro
 
 ---
 
-## 9. FAQ
+## 10. Mistakes to avoid
+
+The six most common pitfalls in real use that this tool is **deliberately not** designed to
+encourage:
+
+| # | Wrong move | Why it's wrong | Right move |
+|---|---|---|---|
+| 1 | **Deleting the skill directory directly** to "close" a skill | Bypasses the backup artifact and protected-lock detection; may delete a skill still referenced by automations/hooks/triggers with no rollback | Let the tool emit an `--overrides` draft, then close via the host `/skills` menu or manual removal using the backup path printed in the report |
+| 2 | **Closing without checking impact preview** | The skill may still be called implicitly by keyword triggers / experts / automations, leaving no log trace → false kill | Run `--impact <name>` first; confirm `referenced_by` is empty before acting |
+| 3 | **Treating "no usage record" as "unused"** | "No record" only means no T1 explicit hit; T2 auto-mount / T3 keyword routing / T4 scheduled tasks / T5 hooks / T6 expert-internal calls leave no trace | Read both the "close candidates" and "manual review" buckets; confirm every candidate with the user before closing |
+| 4 | **Expecting `--apply` to work on non-closable platforms** | `can_close=False` platforms (QwenWork / Baidu / generic) have no programmatic close channel; `--apply` is rejected outright | Use the host's own enable/disable toggles or manual client removal; the tool only reports inventory and candidates |
+| 5 | **Treating `--protect` as a universal guard** | `--protect` only adds named skills to the protected bucket; it does not change the fact that "reverse-dependency scan only covers discoverable config roots" | Pair with `--refs` to point at extra reference-definition roots (automations/hooks/routing) for double coverage |
+| 6 | **`--root` pointing at a parent directory** that swallows unrelated dirs | In generic mode, `--root` scans **every** subdirectory under it as a skill, pulling in unrelated folders | Point `--root` exactly at the "skills root" (each subdirectory = one skill); on unknown hosts prefer `--probe` to let the tool find the root itself |
+
+> Design posture: **under-report rather than false-kill.** The tool will never decide for you
+> that a skill "may be closed" — it only emits candidates and impacts, and every write
+> requires your explicit authorization plus a printed backup path.
+
+---
+
+## 11. FAQ
 
 **Q1. Why is my skill in "manual review" instead of "close candidates"?**
 Only skills with **no usage record** *and* **untouched for over 30 days** become close candidates.

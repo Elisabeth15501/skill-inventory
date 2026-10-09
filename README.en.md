@@ -130,6 +130,30 @@ never get close actions**, only a report plus manual-removal instructions:
 
 ## Reading the output
 
+A real run prints roughly:
+
+```text
+Platform WorkBuddy · 59 skills · 27 used · 6 protected · 19 close candidates · 7 manual review
+                        ≈ 6,912 tokens / conversation turn
+Directory         ⚠/🔒  Lines  KB   Source  Last mod  Uses  Last used
+ai-weekly                 168  2734  self   2026-10-09  1  2026-10-05
+skill-inventory      🔒   91   52  self   2026-09-28  0  —
+🔻 Close candidates (still require per-item human confirmation):
+  bug-fixing  667 lines · 2026-08-04    log-analyzer  501 lines · 2026-08-04
+```
+
+- `⚠` = recently modified, no usage record (goes to "manual review"); `🔒` = protected (never a
+  candidate); `—` = no usage record.
+- `--json` emits a machine-readable object with always-English top-level keys (`agent` /
+  `can_close` / `rows` / `buckets` / `telemetry_gap` / `telemetry_scope` / `cannot_close`);
+  `buckets` has four tiers: `protected` / `keep` / `cleanup` / `review`.
+- `--selftest` offline-checks the built-in parser (vs PyYAML block-scalar semantics):
+  "8 cases passed / 0 failed".
+- Full sample (protected block, complete JSON structure, full selftest text): see
+  `SKILL.en.md §6 What a real run actually prints`.
+
+The four buckets, as legend:
+
 - **used**: genuinely used (trustworthy).
 - **closeable**: no usage record and untouched for over 30 days. **Still requires human
   confirmation**, and keyword/expert-trigger dependencies must be ruled out first.
@@ -137,7 +161,16 @@ never get close actions**, only a report plus manual-removal instructions:
   do not rush.
 - **protected**: never auto-suggested for closing; explicit human action required.
 
-## FAQ (quick reference; the full 9 Q&As live in SKILL.en.md §9)
+## Mistakes to avoid
+
+The six most common pitfalls (full table in `SKILL.en.md §10`): ① deleting a skill directory
+directly (bypasses backup/lock, may false-kill a referenced skill); ② closing without
+`--impact` (implicit dependencies leave no log trace); ③ treating "no record" as "unused"
+(T2–T6 invisible); ④ expecting `--apply` to work on non-closable platforms; ⑤ treating
+`--protect` as a universal guard (pair with `--refs`); ⑥ `--root` pointing at a parent
+directory and swallowing unrelated dirs (point at the skills root, or use `--probe`).
+
+## FAQ (quick reference; the full 11 Q&As live in SKILL.en.md §11)
 
 **Q. Why is my skill in "manual review" instead of "close candidates"?**
 Only "no usage record" **and** "untouched for over 30 days" qualifies. Four reasons push it elsewhere:
@@ -162,7 +195,7 @@ itself are never candidates, and every candidate needs your confirmation. Guardr
 Stable error codes: `E-LOG` (usage log missing/unreadable), `E-ROOT` (skills dir not found), `E-PLATFORM`
 (unknown `--agent`), `E-NOCLOSE` (host has no programmatic close channel), `E-CONF` (settings.json
 read/write failed; nothing modified), `E-READ` (one skill dir unreadable, skipped). Full table in
-SKILL.en.md §9.
+SKILL.en.md §11.
 
 ## Limitations (stated honestly)
 

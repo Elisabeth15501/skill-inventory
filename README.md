@@ -114,7 +114,32 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
 - **需人工确认**：无使用记录但近期改过，或本平台无遥测——别急着关。
 - **受保护**：永不自动建议关闭，须人工明确介入。
 
-## 常见问题（速查版；完整 9 组见 SKILL.md §9）
+**实际输出长什么样（节选）**——跑一次 `python scripts/skill_inventory.py`，终端大致如下：
+
+```text
+平台 WorkBuddy · 技能总数 59 · 有使用记录 27 · 受保护 6 · 可关闭候选 19 · 需人工确认 7
+                            ≈ 6912 tokens / 每轮对话
+目录             ⚠/🔒  行    KB   来源   最后改     用  最后用
+ai-weekly               168 2734   自建  2026-10-09  1   2026-10-05
+skill-inventory      🔒  91   52   自建  2026-09-28  0   —
+🔻 可关闭候选（仍须人工逐条确认）：
+  bug-fixing   667 行 · 2026-08-04    log-analyzer  501 行 · 2026-08-04
+```
+
+- `⚠` = 近期改过但无使用记录（进「需人工确认」）；`🔒` = 受保护（永不进候选）；`—` = 无使用记录。
+- 加 `--json` 输出机器可读对象，顶层键恒为英文（`agent` / `can_close` / `rows` / `buckets` /
+  `telemetry_gap` / `telemetry_scope` / `cannot_close`），`buckets` 四档 `protected/keep/cleanup/review`。
+- 加 `--selftest` 离线校验内置解析器（对照 PyYAML 块标量语义），输出「用例 8 通过 / 0 失败」。
+- 完整版样例（含受保护块、JSON 全结构、selftest 全文）见 `SKILL.md §6 实际输出长什么样`。
+
+## 应避免的错误用法
+
+6 类最常踩的坑（完整版见 `SKILL.md §10`）：① 直接删技能目录（绕过备份/锁定，误杀被引用技能）
+② 不看 `--impact` 就关闭（隐式依赖日志无痕）③ 把「无记录」当「没用」（T2–T6 无痕）
+④ 在不可关平台期待 `--apply` 生效 ⑤ 把 `--protect` 当万能护栏（需配 `--refs`）
+⑥ `--root` 指向父目录误纳无关目录（精确到技能根，或直接用 `--probe`）。
+
+## 常见问题（速查版；完整 11 组见 SKILL.md §11）
 
 **Q：为什么我的技能进了「需人工确认」而不是「可关闭候选」？**
 只有「无使用记录」**且**「超过 30 天没改过」才是候选。四个原因：无遥测 / 最近改过 / 平台没有关闭通道 /
@@ -135,7 +160,7 @@ python scripts/skill_inventory.py --selftest    # 自测内置解析器（零依
 **Q：报错里的 `[E-LOG]` `[E-CONF]` 是什么？**
 稳定错误码：`E-LOG`（用量日志缺失/读不了）、`E-ROOT`（技能目录找不到）、`E-PLATFORM`（`--agent` 值不认识）、
 `E-NOCLOSE`（该宿主无程序化关闭通道）、`E-CONF`（settings.json 读写失败，本次未改动）、`E-READ`（单个技能目录
-读不到，已跳过）。完整对照表见 SKILL.md §9。
+读不到，已跳过）。完整对照表见 SKILL.md §11。
 
 ## 局限性（如实告知）
 
