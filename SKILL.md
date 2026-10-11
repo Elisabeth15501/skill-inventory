@@ -69,10 +69,13 @@ metadata:
 
 **触发短语示例**（匹配 `description` 自动挂载或显式调用）：
 
-- 「盘点我装了哪些技能」
-- 「哪些技能可以关闭/合并」「技能占了多少上下文」
-- 「关闭 XX 前先看影响」
+- 「盘点我装了哪些技能」「技能库太多了帮我看看哪些能关」
+- 「哪些技能可以关闭/合并」「技能占了多少上下文」「帮我瘦身一下技能库」
+- 「关闭 XX 前先看影响」（`--impact`）
+- 「自测一下你的解析器」（`--selftest`）
+- 「帮我找找技能装在哪」（`--probe`）
 - 「把报告语言换成英文/中文」「语言设置改成 auto」
+- 「百度的技能目录在哪」「通用平台怎么扫技能」（`--agent baidu` / `--agent generic --root <dir>`）
 
 **不触发**：写周报、发邮件、代码生成等与技能库治理无关的任务——本技能只做技能库的
 盘点、体检与关闭前评估。
@@ -94,6 +97,9 @@ metadata:
   zh/en，或用 `--lang` 单次覆盖；不选语言的用户看到中文报告纯属默认，不是被强制。
 - **恒定不变**：四档分类标识恒为英文（used / protected / closeable / manual-review），
   `--json` 输出恒为英文键——程序化消费不受语言设置影响。
+- **零参数路径**：多数环境无需手写任何路径——直接跑 `python scripts/skill_inventory.py` 即自动
+  探测已知平台；陌生宿主用 `--probe` 让工具自己找技能目录，仅在 `--probe` 也找不到时才退回
+  `--root <目录>` 手填。
 
 ## 3. 输入材料
 
@@ -128,22 +134,21 @@ metadata:
 
 ## 5. 执行步骤
 
-| 命令 | 说明 |
-|---|---|
-| `python scripts/skill_inventory.py` | auto 探测平台，完整报告 |
-| `python scripts/skill_inventory.py --agent workbuddy` | WorkBuddy（有用量账本；可起草关闭） |
-| `python scripts/skill_inventory.py --agent qwen` | 千问办公（调用记录；关闭走连接器/UI） |
-| `python scripts/skill_inventory.py --agent baidu` | 百度搭子（多根探测；无遥测 → 全库需人工确认） |
-| `python scripts/skill_inventory.py --agent generic --root <dir>` | 通用档：任意平台/自定义目录 |
-| `python scripts/skill_inventory.py --agent generic --probe [dirs]` | 陌生宿主让工具**自己找**技能目录（可跟逗号分隔的候选路径；也认 `SKILL_INVENTORY_ROOT` 环境变量） |
-| `python scripts/skill_inventory.py --impact <名称>` | 单技能影响深查（关闭前审阅） |
-| `python scripts/skill_inventory.py --json` | 机器可读 JSON |
-| `python scripts/skill_inventory.py --show-lang` | 查看语言设置与选项说明 |
-| `python scripts/skill_inventory.py --set-lang auto\|zh\|en` | 保存语言设置（立即生效） |
-| `python scripts/skill_inventory.py --lang zh\|en` | 本次运行的语言覆盖 |
-| `python scripts/skill_inventory.py --selftest` | 自测内置 frontmatter 解析器（零依赖，可离线跑） |
+规范写法：`python scripts/skill_inventory.py [flags]`。常用 flags 组合：
 
-流程：`auto 探测平台 → 失败回落 generic 通用档`。通用档用 `--probe` 自动找技能目录（找不到再退回
+| flags | 说明 |
+|---|---|
+| （无参数） | auto 探测平台，完整报告 |
+| `--agent workbuddy\|qwen\|baidu` | 指定宿主平台（workbuddy 有用量账本可起草关闭；qwen 有调用记录；baidu 无遥测 → 全库需人工确认） |
+| `--agent generic --root <dir>` | 通用档：任意平台/自定义目录 |
+| `--agent generic --probe [dirs]` | 陌生宿主让工具**自己找**技能目录（可跟逗号分隔候选路径；也认 `SKILL_INVENTORY_ROOT` 环境变量） |
+| `--impact <名称>` | 单技能影响深查（关闭前审阅） |
+| `--json` | 机器可读 JSON（顶层键恒英文） |
+| `--show-lang` / `--set-lang auto\|zh\|en` | 查看 / 保存语言设置 |
+| `--lang zh\|en` | 本次运行语言覆盖（不改已保存设置） |
+| `--selftest` | 自测内置 frontmatter 解析器（零依赖，可离线跑） |
+
+流程：`auto 探测平台 → 失败回落 generic 通用档`。通用档优先用 `--probe` 自动找技能目录（找不到再退回
 `--root <目录>` 手填）；无用量日志自动降级为「不判任何技能可关闭」；`--refs` 可补充反向依赖扫描根。
 
 ## 6. 实际输出长什么样
@@ -228,29 +233,30 @@ skill-creator                           356   52.6      市场 2026-06-30  17 20
 
 ## 8. 用户确认点
 
-- **本工具不会自行关闭任何技能。** 关闭写路径需你显式授权——在 WorkBuddy 等可关平台上传入
-  `--overrides --apply --yes`：此时先自动备份 `settings.json`，再把候选合并进 `skillOverrides`；
-  缺 `--yes` 只做 dry-run 预览；不可关平台直接拒绝 `--apply`。
-- **优先引导宿主自带开关**：如 WorkBuddy 的 `/skills` 菜单（按 Esc 才落盘）、千问/百度的客户端启用开关；通用档没有关闭通道，只给候选清单。
-- **可关闭候选**：确认前先看「影响预览」（`--impact <名称>`），确认无关键词触发器 / 专家组件 / 自动化依赖。
+行为契约全文见 `README.md §🔒 行为契约`（8 条，先读再信任）。此处只列**关闭前必须确认**的
+三点（SKILL 侧技术要点，不与 README 重复）：
+
+- **本工具不会自行关闭任何技能。** 关闭写路径需你显式授权——在可关平台上 `--overrides
+  --apply --yes` 会先自动备份 `settings.json` 再合并进 `skillOverrides`；缺 `--yes` 仅 dry-run；
+  不可关平台直接拒绝 `--apply`。
+- **优先引导宿主自带开关**（`/skills` 菜单、客户端启用开关）；通用档无关闭通道，只给候选清单。
+- **可关闭候选动刀前先看影响预览**（`--impact <名称>`），确认无关键词触发器 / 专家组件 /
+  自动化依赖（`referenced_by` 为空）。
 
 ## 9. 风险边界
 
-- **默认只读，写路径两处目标 + 一份备份工件、均受控**：本工具默认不写任何宿主配置、不调用任何禁用/删除接口。
-  它具备两项受控写能力，均需显式授权并在输出中标注：`--overrides --apply --yes`（缺
-  `--yes` 即 dry-run、不可关平台拒绝）与 `--set-lang`（只写语言偏好文件）；此外 `--apply --yes`
-  落笔前必先生成 settings.json 备份副本（路径打印在输出里，由你手动删除）。
-- **无自动驻留**：不注册定时任务 / cron、不写启动项、不留守护进程、不自我修改（即不自主执行）。
-  跨会话**可见的写入**仅两处，均为用户显式授权的公开功能、随时可逆——`skillOverrides` 的 off 项
-  （可在宿主 `/skills` 菜单恢复）与语言偏好文件。语言偏好文件只是显示偏好（单个 JSON 键）：
-  不基于它注册或排程任何东西，仅在下一次运行时被读取用来挑报告语言；`--set-lang auto`
-  或删除该文件即恢复默认。
-  ↳ 注意：本工具**确实会产生经授权的跨会话写入**（见上方「两处写目标 + 一份备份工件」），
-  这与「自动驻留（自主执行）」是两回事——前者需你显式触发，后者我们完全没有。
-- **未显式调用 ≠ 没用**：关键词触发器、专家/连接器组件的间接调用在用量日志里完全无痕——这是结构性盲区，靠反向依赖扫描 + 用户确认双层兜底。
-- **遥测缺口不判死**：无用量日志或日志读取失败时，全库落「需人工确认」，不输出可关闭项——宁可少报，不可误杀。
-- **受保护技能永不进候选**：本工具自身、`protected: true`、安全/审计类、被引用锁定、用户 `--protect` 追加。
-- **重复检测是近似比对**（名称/描述/体积），不是语义级去重；结论仅基于可发现的配置根，T2 自动挂载与描述性关键词引用扫不到。
+完整行为契约（默认只读、两处受控写 + 一份备份工件、无自动驻留、受保护永不进候选、遥测缺口
+不判死、反向依赖扫描）见 `README.md §🔒 行为契约`。此处只列**技术边界**（SKILL 侧，不与
+README 重复全文）：
+
+- **写路径**（均需显式授权并在输出中标注）：① `--overrides --apply --yes` 写
+  `~/.workbuddy/settings.json` 的 `skillOverrides`（先备份）；② `--set-lang` 写语言偏好文件
+  `~/.workbuddy/skill-inventory.json`（单键）；③ `--apply --yes` 生成 `settings.json.bak.<时间戳>`
+  惰性备份副本（路径打印、不回读、可手动删除）。
+- **读边界**：技能目录、用量日志、自动化/Hook/路由/插件配置；**网络无、子进程无**。
+- **遥测口径**：用量日志只覆盖 T1 显式调用；T2–T6（自动挂载/定时任务/Hook/专家内部）无痕，
+  靠反向依赖扫描 + 用户确认双层兜底。
+- **重复检测是近似比对**（名称/描述/体积），非语义级去重；仅覆盖可发现配置根。
 
 ---
 
@@ -332,7 +338,10 @@ skill-creator                           356   52.6      市场 2026-06-30  17 20
 | WorkBuddy | `~/.workbuddy/skills` 自动 | ✅ `usage-log.json` | ✅ `skillOverrides`（需 `--apply --yes`，先备份） | 盘点 + 可关闭草稿 |
 | 千问办公 QwenWork | `~/.qwenworkcn/skills` 自动 | ✅ `skill-usage.json` | 经连接器/UI（不代执行） | 盘点 + 调用记录 + 客户端确认清单 |
 | 百度搭子 Baidu DuMate | 多根自动探测 | ❌ | 经 UI/连接器（不代执行） | 盘点 + 关闭指引；无遥测全库需人工确认 |
-| 通用档 Generic（含天禧等沙箱） | `--root` 指定 | 默认无 | ❌ 无关闭通道 | 盘点 + 建议；全库需人工确认 |
+| 通用档 Generic（含天禧等沙箱） | `--probe` 自动找 / `--root` 手填 | 默认无 | ❌ 无关闭通道 | 盘点 + 建议；全库需人工确认 |
 
 > 原则：**能力感知**——平台能不能「程序化关闭」决定工具产出什么。不可关平台不产出关闭动作，
 > 只做体检与候选清单，把「动刀」留给宿主与用户。
+>
+> **零参数路径**：通用档优先 `--probe` 让工具自己找技能目录，多数环境无需手写路径；
+> 仅在探测失败时才退回 `--root <目录>` 手填。

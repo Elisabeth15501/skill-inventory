@@ -15,10 +15,13 @@ tokens burned per turn.
 
 Trigger examples (auto-mounted via `description` match, or invoked explicitly):
 
-- "inventory my installed skills"
-- "which skills can I close or merge", "how much context do my skills cost"
-- "show the impact of closing <skill> before I do it"
+- "inventory my installed skills", "I've got too many skills, help me see which can go"
+- "which skills can I close or merge", "how much context do my skills cost", "shrink my skill library"
+- "show the impact of closing <skill> before I do it" (`--impact`)
+- "self-test your parser" (`--selftest`)
+- "find where my skills are installed" (`--probe`)
 - "switch the report language to English/Chinese", "set language to auto"
+- "where's Baidu's skill dir", "how do I scan skills on a generic host" (`--agent baidu` / `--agent generic --root <dir>`)
 
 **Not for**: unrelated tasks (report writing, mail, code generation) — this skill only
 inventories and assesses skill libraries.
@@ -45,6 +48,10 @@ inventories and assesses skill libraries.
 - **Invariant**: bucket names are always English identifiers (used / protected / closeable /
   manual-review) and `--json` output is always English-keyed — programmatic consumption is
   language-independent.
+- **Zero-arg path**: most environments need no manual paths at all — just run
+  `python scripts/skill_inventory.py` to auto-detect known platforms; on unknown hosts use
+  `--probe` to let the tool find the skills directory, falling back to `--root <dir>` only
+  when `--probe` also fails.
 
 ## 3. Inputs
 
@@ -80,24 +87,23 @@ Pure local static analysis — no network, no subprocesses (sandbox red-line com
 
 ## 5. How to run
 
-| Command | Purpose |
-|---|---|
-| `python scripts/skill_inventory.py` | auto-detect platform, full report |
-| `python scripts/skill_inventory.py --agent workbuddy` | WorkBuddy (usage ledger; close drafts) |
-| `python scripts/skill_inventory.py --agent qwen` | QwenWork (usage records; close via connector/UI) |
-| `python scripts/skill_inventory.py --agent baidu` | Baidu DuMate (multi-root; no telemetry → all manual review) |
-| `python scripts/skill_inventory.py --agent generic --root <dir>` | generic mode: any platform / custom directory |
-| `python scripts/skill_inventory.py --agent generic --probe [dirs]` | let the tool **find** skill directories on unknown hosts (optional comma-separated candidates; `SKILL_INVENTORY_ROOT` env var also honored) |
-| `python scripts/skill_inventory.py --impact <name>` | single-skill impact deep dive |
-| `python scripts/skill_inventory.py --json` | machine-readable JSON |
-| `python scripts/skill_inventory.py --show-lang` | show language setting and options |
-| `python scripts/skill_inventory.py --set-lang auto\|zh\|en` | save the language setting (effective immediately) |
-| `python scripts/skill_inventory.py --lang zh\|en` | language override for this run |
-| `python scripts/skill_inventory.py --selftest` | self-test the built-in frontmatter parser (zero deps, offline) |
+Canonical form: `python scripts/skill_inventory.py [flags]`. Common flag combinations:
 
-Flow: `auto-detect platform → fall back to generic mode`. In generic mode `--probe` looks for the
-skills directory itself (fall back to `--root <dir>` if it finds nothing); without a usage log the tool
-degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan roots.
+| flags | Purpose |
+|---|---|
+| (no flags) | auto-detect platform, full report |
+| `--agent workbuddy\|qwen\|baidu` | target host (workbuddy has usage ledger; qwen has call records; baidu has no telemetry → all manual review) |
+| `--agent generic --root <dir>` | generic mode: any platform / custom directory |
+| `--agent generic --probe [dirs]` | let the tool **find** skill directories on unknown hosts (optional comma-separated candidates; `SKILL_INVENTORY_ROOT` env var also honored) |
+| `--impact <name>` | single-skill impact deep dive |
+| `--json` | machine-readable JSON (top-level keys always English) |
+| `--show-lang` / `--set-lang auto\|zh\|en` | view / save the language setting |
+| `--lang zh\|en` | language override for this run only |
+| `--selftest` | self-test the built-in frontmatter parser (zero deps, offline) |
+
+Flow: `auto-detect platform → fall back to generic mode`. In generic mode prefer `--probe` to find
+the skills directory itself (fall back to `--root <dir>` only when it finds nothing); without a
+usage log the tool degrades to "nothing judged closeable"; `--refs` adds reverse-dependency scan roots.
 
 ## 6. What a real run actually prints
 
@@ -192,43 +198,38 @@ block-scalar semantics; runs offline:
 
 ## 8. User confirmation points
 
-- **The tool never closes a skill on its own.** The close write path runs only with your explicit
-  authorization — pass `--overrides --apply --yes` on closable platforms (WorkBuddy family); the
-  tool backs up `settings.json` first, then merges "off" entries into `skillOverrides`; without
-  `--yes` it is a dry-run preview; non-closable platforms reject `--apply` outright.
-- **Prefer the host's own toggles**: e.g. WorkBuddy's `/skills` menu (press Esc to persist),
-  QwenWork/Baidu client switches; generic mode has no close channel and outputs candidate lists only.
-- **Close candidates**: review the impact preview (`--impact <name>`) first; confirm there is no
-  keyword-trigger / expert / automation dependency.
+The full behaviour contract (8 points) lives in `README.en.md §🔒 Behaviour contract` — read it
+before trusting the tool. This section keeps only the **three SKILL-side technical points**
+relevant to closing (no duplication of the README contract):
+
+- **The tool never closes a skill on its own.** The close write path runs only with your
+  explicit `--overrides --apply --yes` on a closable platform: it backs up `settings.json` first,
+  then merges "off" entries into `skillOverrides`; without `--yes` it is a dry-run; non-closable
+  platforms reject `--apply` outright.
+- **Prefer the host's own toggles** (`/skills` menu, client switches); generic mode has no close
+  channel and emits candidate lists only.
+- **Review the impact preview before acting on any close candidate** (`--impact <name>`);
+  confirm no keyword-trigger / expert / automation dependency (`referenced_by` empty).
 
 ## 9. Risk boundaries
 
-- **Read-only by default; two disclosed, consent-gated write targets plus one backup artifact**:
-  no config writes and no disable/delete calls unless you explicitly authorize one of the two
-  capabilities — `--overrides --apply --yes` (dry-run without `--yes`, rejected on non-closable
-  platforms) and `--set-lang` (writes the language preference file only). Both are labeled
-  explicitly in every report and output, and the close write always produces a timestamped
-  `settings.json.bak.<ts>` safety copy first, whose path is printed so you may delete it manually when no longer needed.
-- **No autonomous residency**: no cron jobs, no startup scripts, no daemons, no
-  self-modification (i.e. no autonomous execution). Cross-session **visible writes** are limited
-  to two user-consented, disclosed and reversible capabilities — the `off` entries in
-  `skillOverrides` (reversible via the host's `/skills` menu) and the language preference file.
-  The language preference file is a display preference only (a single JSON key): nothing is
-  scheduled or registered from it, it is read solely to pick the report language, and
-  `--set-lang auto` or deleting the file restores the default.
-  ↳ Note: this tool **does perform authorized cross-session writes** (see the "two write targets
-  + backup artifact" item above) — that is distinct from autonomous residency (autonomous
-  execution), which we have none of.
-- **"No usage record" is not "unused"**: keyword triggers and expert/connector-internal calls
-  leave no trace in usage logs — a structural blind spot covered by reverse-dependency scanning
-  plus user confirmation.
-- **Telemetry gap ⇒ nothing judged closeable**: without a usable usage log everything lands in
-  manual-review. Under-reporting beats false kills.
-- **Protected skills never enter the closeable bucket**: this tool itself, `protected: true`,
-  safety/audit keyword hits, reference-locked skills, user-added via `--protect`.
-- **Duplicate detection is approximate** (name/description/size), not semantic dedup; results
-  cover discoverable config roots only — T2 auto-mounting and descriptive keyword references
-  are invisible to it.
+The full behaviour contract (read-only by default, two consent-gated write targets + one backup
+artifact, no autonomous residency, protected-never-closeable, telemetry-gap ⇒ nothing closeable,
+reverse-dependency scan) lives in `README.en.md §🔒 Behaviour contract`. This section keeps only
+the **technical boundaries** (SKILL-side, no duplication of the README full text):
+
+- **Write paths** (each requires explicit authorization and is labeled in the output):
+  ① `--overrides --apply --yes` writes the `skillOverrides` key of
+  `~/.workbuddy/settings.json` (backed up first); ② `--set-lang` writes the language preference
+  file `~/.workbuddy/skill-inventory.json` (single key); ③ `--apply --yes` produces a
+  `settings.json.bak.<ts>` inert safety copy (path printed, never read back, manually deletable).
+- **Read boundary**: skill directories, usage logs, automation/hook/routing/plugin configs;
+  **network: none, subprocess: none**.
+- **Telemetry scope**: the usage log covers T1 explicit invocations only; T2–T6 (auto-mount /
+  scheduled tasks / hooks / expert-internal) leave no trace and are covered by reverse-dependency
+  scanning plus user confirmation.
+- **Duplicate detection is approximate** (name/description/size), not semantic dedup; covers
+  discoverable config roots only.
 
 ---
 
@@ -323,8 +324,11 @@ tells you exactly where the gap is.
 | WorkBuddy | `~/.workbuddy/skills` auto | ✅ `usage-log.json` | ✅ `skillOverrides` (needs `--apply --yes`, backup first) | inventory + close drafts |
 | QwenWork | `~/.qwenworkcn/skills` auto | ✅ `skill-usage.json` | via connector/UI (never performed by this tool) | inventory + usage records + client-side checklist |
 | Baidu DuMate | multi-root auto | ❌ | via UI/connector | inventory + close instructions; no telemetry → all manual review |
-| Generic (incl. Tianxi sandboxes) | `--root` | none by default | ❌ no close channel | inventory + advice; all manual review |
+| Generic (incl. Tianxi sandboxes) | `--probe` auto-find / `--root` manual | none by default | ❌ no close channel | inventory + advice; all manual review |
 
 > Principle: **capability-aware** — what the tool emits depends on whether the platform can close
 > programmatically. Non-closable platforms get inventory + candidate lists only; the "knife" stays
 > with the host and the user.
+>
+> **Zero-arg path**: generic mode prefers `--probe` to auto-find the skills directory — most
+> environments need no manual paths; fall back to `--root <dir>` only when detection fails.
