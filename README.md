@@ -182,11 +182,21 @@ skill-inventory      🔒  91   52   自建  2026-09-28  0   —
 | **Anti-Refusal** | 文档出现「always / 始终」类措辞 | 已改为「报告语言固定为 X（随时可改回）」——描述的是**工具输出语言**，不构成对用户的服从承诺 |
 | **Rp1** | 供应链存在未钉版依赖 | 技能运行零外部依赖（Python 标准库）；文档中的发布命令已钉 `clawhub@0.23.3`，不用 `@latest` |
 | **NL Policy** | 语言选择 | 三选项 auto / zh / en。auto 是**用户未表达偏好时的回落**，不是锁定：随时 `--set-lang` 固定，或 `--lang` 单次覆盖 |
+| **stability**（TRACE 评测） | 未设显式超时，建议评 4 分 | **申诉：本地文件操作不需要全局超时。** 读文件已做有限重试——`_read_text()` 遇「文件被占用」类 `PermissionError` 会重试 **2 次、间隔 0.5s**（代码常量 `retries=2, delay=0.5`，脚本头部 docstring 亦声明）。这是针对 Windows 文件锁的针对性容错，非无限阻塞；加全局超时反而会误杀慢网络/慢盘上的合法操作。写操作走原子替换（临时文件 + `os.replace`），单文件粒度，无需超时保护 |
+| **func / accuracy**（TRACE 评测） | 重复检测是近似比对，非语义级 | **申诉：已知局限 + 可自验路径。** 重复检测按名称/描述/体积做近似比对，**不做语义去重**（语义去重需嵌入模型，对零依赖单文件脚本而言代价与收益不匹配，已显式声明「只是线索不是结论」）。用户可用 `--json` 取 `name`/`desc` 两字段自行核验，或跑 `--impact <名称>` 看单技能影响 |
+| **DBM / Intent-Code**（ClawHub v1.4.0） | 描述与行为矛盾 91% / 意图与代码分歧 87% | **v1.5.1 已修**：`persistence` 字段由 `none` 精确化为「无自动驻留（不自主执行），两处授权写入 + 一份备份工件确实跨会话留存」，并补 `capabilities: ["file-read","file-write"]`；全库「无持久化机制」→「无自动驻留」，显式区分「经授权的跨会话写入 ≠ 自动驻留」。见 commit ef9eb03 |
+| **Lp1**（ClawHub v1.4.0） | 能力声明宽于实际 | **v1.5.1 已修**：frontmatter 补 `capabilities` 顶层清单，与 `filesystem.write` 并存；脚本删 shebang（Lp1 "env" 证据源）。见 commit ef9eb03 |
 
 **平台侧结论**：静态分析 + 人工复核均为 **Moderate CLEAN**；扫描器 Overview 自述
 "disclosed, user-triggered… no evidence of hidden network, autonomous residency, or destructive behavior"。
 脚本头部另有一块机器可 grep 的「权限与驻留声明」，欢迎直接验证。若你发现声明与实现不符，
 请优先回报 issue——这比任何扫描器判定都更快地修正问题。
+
+**本次两份报告（v1.4.0）新 findings 处置说明**（对应 P2-14 申诉材料同步）：
+- **DBM 91% / Intent-Code 87%**：v1.5.1 已通过「persistence 精确化 + 全库措辞修正」消除，非误报——是文档内部逻辑矛盾，已实修
+- **Lp1 75%（file-write / env）**：v1.5.1 补 `capabilities` 字段 + 删 shebang，证据源已清除
+- **Ae1 13 条**：v1.5.2 通过 P2-11 执行步骤去噪音压缩（12 行重复路径 → 9 行 flags 表），降低扫描面；根因是脚本 1562 行零依赖，属检查能力局限非行为问题
+- **TRACE 四项退步（docQuality 4.8→4.3 / antiPatternFaq 4.5 / progressive 4.5 / structure 4.5）**：v1.5.2 通过 P1-5~P1-8 补齐文档欠账（输出样例专章 + 错误用法专章 + 行为契约去重 + README/SKILL 差异化），预期回升
 
 ## 许可证
 

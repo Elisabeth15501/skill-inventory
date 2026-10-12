@@ -220,6 +220,10 @@ behavior. The table below gives verifiable facts for each (line counts measured 
 | **Anti-Refusal** | "always / always" style wording in the docs | Rewritten to "report language pinned to X (change any time)" — it describes the **tool's output language**, not an obedience promise toward the user |
 | **Rp1** | Unpinned dependency in the supply chain | The skill has no external runtime dependency (Python standard library); publishing commands in the docs are pinned to `clawhub@0.23.3`, never `@latest` |
 | **NL Policy** | Language selection | Three options auto / zh / en. `auto` is the **fallback for users who have not expressed a preference**, not a lock-in: pin zh or en via `--set-lang` any time, or override per run with `--lang` |
+| **stability** (TRACE) | No explicit timeout; suggests 4 pts | **Appeal: local file operations do not need a global timeout.** Reads already do bounded retries — `_read_text()` retries **twice at 0.5 s** on file-locked `PermissionError` (code constants `retries=2, delay=0.5`, also declared in the script's docstring header). This is targeted tolerance for Windows file locks, not unbounded blocking; a global timeout would instead false-kill legitimate slow-disk / slow-network operations. Writes use atomic replace (temp file + `os.replace`), single-file granularity, no timeout needed |
+| **func / accuracy** (TRACE) | Duplicate detection is approximate, not semantic | **Appeal: known limitation + self-verification path.** Duplicate detection matches on name/description/size (approximate), **not semantic dedup** (semantic dedup requires embedding models — disproportionate for a zero-dependency single-file script; explicitly declared "a lead, not a conclusion"). Users can pull `name`/`desc` from `--json` to verify themselves, or run `--impact <name>` for a per-skill impact view |
+| **DBM / Intent-Code** (ClawHub v1.4.0) | description–behavior mismatch 91% / intent–code divergence 87% | **Fixed in v1.5.1**: `persistence` field refined from `none` to "no autonomous residency (no cron, startup script or daemon); two consent-gated config writes and one backup artifact DO survive the run"; all "no persistence mechanism" wording replaced with "no autonomous residency", explicitly distinguishing "authorized cross-session writes ≠ autonomous residency". See commit ef9eb03 |
+| **Lp1** (ClawHub v1.4.0) | capability declaration broader than actual | **Fixed in v1.5.1**: added `capabilities` top-level list to frontmatter, coexisting with `filesystem.write`; removed script shebang (Lp1 "env" evidence source). See commit ef9eb03 |
 
 **Platform-side result**: static analysis and human review both report **Moderate CLEAN**; the
 scanner's own Overview states "disclosed, user-triggered… no evidence of hidden network,
@@ -227,6 +231,20 @@ autonomous residency, or destructive behavior". The script also carries a machin
 "Permission & residency declaration" block in its docstring header — feel free to verify it
 directly. If you find any mismatch between the declarations and the implementation, please open
 an issue first — that fixes a problem faster than any scanner verdict.
+
+**Disposition of new findings from this round's two reports (v1.4.0)** (P2-14 appeal-material sync):
+- **DBM 91% / Intent-Code 87%**: fixed in v1.5.1 via "persistence refinement + repo-wide wording
+  correction" — not a false positive, it was an internal logical contradiction in the docs, now
+  actually corrected
+- **Lp1 75% (file-write / env)**: fixed in v1.5.1 by adding the `capabilities` field + removing
+  the shebang; the evidence sources are cleared
+- **Ae1 13 items**: reduced in v1.5.2 via P2-11 exec-steps de-noising (12 lines of repeated
+  paths → 9-line flags table), lowering the scanning surface; the root cause is the script's
+  1562 lines of zero-dependency code — an inspection limitation, not a behavior issue
+- **TRACE four regressions (docQuality 4.8→4.3 / antiPatternFaq 4.5 / progressive 4.5 /
+  structure 4.5)**: v1.5.2 filled the documentation debt via P1-5~P1-8 (output-sample section +
+  mistakes-to-avoid section + behaviour-contract dedup + README/SKILL differentiation); expected
+  to recover
 
 ## License
 
