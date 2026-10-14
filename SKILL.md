@@ -62,7 +62,7 @@ metadata:
 > 章节数与 FAQ 条目一一对应。
 > 维护者文档（发布清单 / 触发词归档）保留在 GitHub 仓库的 `references/`，不随平台分发包分发。
 
-办公型 Agent（WorkBuddy、千问办公、百度搭子、天禧AI 等）装得多不等于能力强。
+办公型 Agent（WorkBuddy、千问办公、百度搭子、天禧AI 等，均经 generic 模式支持；天禧等沙箱默认无关闭通道）装得多不等于能力强。
 技能清单（name + description）每一轮对话都进模型上下文——装 54 个技能约等于每轮白烧 5,000+ tokens。
 
 ## 1. 适用场景

@@ -1,3 +1,10 @@
+---
+name: skill-inventory
+slug: skill-inventory
+displayName: 技能盘点与效能体检 · Skill Inventory & Health Check
+version: 1.5.2
+---
+
 # skill-inventory · Skill inventory & health check for office agents (English version)
 
 > **中文文档**：`SKILL.md`（this file is the English version）· `README.md`。
@@ -7,7 +14,7 @@
 > Maintainer-only notes (publishing checklist / usage-trigger archive) live in the GitHub
 > repo's `references/` and are not part of the distributed package.
 
-Office agents (WorkBuddy, QwenWork, Baidu DuMate, Tianxi AI, …) accumulate skills whose
+Office agents (WorkBuddy, QwenWork, Baidu DuMate, Tianxi AI (via generic mode), …) accumulate skills whose
 name+description entries ride along in every conversation turn — 54 installed skills ≈ 5,000+
 tokens burned per turn.
 
