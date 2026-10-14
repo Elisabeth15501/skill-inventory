@@ -180,6 +180,10 @@ SAFETY_KEYWORDS = (
     "sanitize", "compliance", "backup",
 )
 
+# 用量/反向依赖关联时的子串匹配最小长度：短于该长度的技能名/leaf 不做子串模糊配对，
+# 避免把名字互为子串的短名技能误关联（近似匹配，已知局限见 P2-13 / 报告）。
+MIN_SUBSTR_LEN = 5
+
 # 反向依赖扫描的默认参照根（存在才扫）：只扫「定义目录」，不扫 settings.json
 # —— settings.json 是技能登记册（全量清单），扫它会造成整本技能册被误锁为「受保护」。
 # 真正的「被自动化 / Hook / 专家·连接器调用」定义应在 automations/、hooks/ 等目录里；
@@ -354,7 +358,7 @@ def load_usage(path, adapter=None) -> tuple:
         return {}, False
 
 
-def scan(roots: list, market_resolver=None) -> list:
+def scan(roots: list, market_resolver=None, protected_extra: set = frozenset(), safety_keywords: tuple = SAFETY_KEYWORDS) -> list:
     """扫描技能根目录（支持多根合并），返回技能行列表。
 
     roots: list of dict {"path": Path, "label": str, "disabled": bool}
@@ -405,15 +409,34 @@ def scan(roots: list, market_resolver=None) -> list:
             leaf = sd.name
             name = fm.get("name") or leaf
             # 受保护判定（P0）：自保护清单 ∪ frontmatter 显式标记 ∪ 安全/审计类关键词启发式
-            safety_hit = any(k in norm(name) or k in norm(leaf) for k in SAFETY_KEYWORDS)
+            safety_hit = any(k in norm(name) or k in norm(leaf) for k in safety_keywords)
             protected = (
-                norm(leaf) in {norm(x) for x in PROTECTED_LEAVES}
+                norm(leaf) in protected_extra
                 or str(fm.get("protected", "")).strip().lower() in ("true", "1", "yes", "y", "protected")
                 or str(fm.get("critical", "")).strip().lower() in ("true", "1", "yes")
                 or safety_hit
             )
             rel = sd.relative_to(root).as_posix()
             d = f"{label}/{rel}" if (multi and label) else rel
+            # ── 行 schema（B1 风险点：全局共享隐式结构，新增/改名字段须全局对齐）──
+            # 每个技能产出一个 dict，字段：
+            #   dir(str)            区域相对路径（多根时带区域前缀）
+            #   leaf(str)           技能目录名（唯一标识）
+            #   name(str)           frontmatter.name 或 leaf
+            #   desc(str)           描述
+            #   from_market(bool)   是否来自市场
+            #   lines(int)          SKILL.md 行数
+            #   files(int)          文件数
+            #   kb(float)           总体积 KB
+            #   last_modified(str)  YYYY-MM-DD
+            #   mtime(float)        修改时间戳
+            #   protected(bool)     受保护
+            #   safety_hit(bool)    命中安全关键词
+            #   locked(bool)        被反向依赖锁定（后续填充）
+            #   referenced_by(list) 引用方列表（后续填充）
+            #   region(str)         所属区域标签
+            #   disabled_region(bool) 是否处于禁用库
+            # 后续 attach_usage 还会补 used_as / last_used / uses 三字段。
             raw.append({
                 "dir": d,
                 "leaf": leaf,
@@ -581,7 +604,7 @@ def attach_usage(rows: list, usage: dict) -> None:
         best = None
         for uid, v in usage.items():
             u = norm(uid)
-            if any(c == u or (len(c) >= 5 and (c in u or u in c)) for c in cands if c):
+            if any(c == u or (len(c) >= MIN_SUBSTR_LEN and (c in u or u in c)) for c in cands if c):
                 if best is None or (v.get("lastUsedDate") or "") > (best[1].get("lastUsedDate") or ""):
                     best = (uid, v)
         r["used_as"] = best[0] if best else None
@@ -1139,11 +1162,11 @@ def render_overrides(rows: list, telemetry: bool, profile: dict, do_apply: bool,
 def backup_settings() -> pathlib.Path:
     """动刀前自动备份 settings.json（audit-hermes 风）。返回备份路径。"""
     settings = HOME / ".workbuddy" / "settings.json"
-    ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     bak = settings.with_name(settings.name + f".bak.{ts}")
     if settings.exists():
         shutil.copy2(settings, bak)
-    return bak, settings
+    return bak
 
 
 def _read_text(path, retries: int = 2, delay: float = 0.5) -> str:
@@ -1198,7 +1221,7 @@ def apply_wb(leaves: list, yes: bool) -> None:
         print(json.dumps({"skillOverrides": {l: "off" for l in leaves}}, ensure_ascii=False, indent=2))
         return
     # 仅在真正同意时才备份 + 写入
-    bak, _ = backup_settings()
+    bak = backup_settings()
     if settings.exists():
         print(M("ap_backup", p=bak))
     else:
@@ -1406,6 +1429,32 @@ def run_selftest() -> int:
         else:
             bad += 1
             print(f"  [FAIL] SKILL.md 回退解析缺键：{got}")
+
+    # i18n 模板语法自测：每个模板以占位符名填类型正确的 dummy 值做 .format()，
+    # 捕获字面量花括号 / 占位符拼写导致的 ValueError / KeyError（防患 M() 运行时崩）。
+    # 注意：带数值格式符（:f/:d 等）的字段须喂对应类型 dummy，否则会误报。
+    print("[selftest] i18n template .format() 语法校验")
+    tpl_ok = tpl_bad = 0
+    fld_re = re.compile(r"\{(\w+)([:!][^}]*)?\}")
+    for key, (zh, en) in S.items():
+        for lang, tmpl in (("zh", zh), ("en", en)):
+            try:
+                vals: dict = {}
+                for fn, spec in fld_re.findall(tmpl):
+                    if spec and any(ch in spec for ch in "feg%"):
+                        vals[fn] = 1.0
+                    elif spec and any(ch in spec for ch in "dbox"):
+                        vals[fn] = 1
+                    else:
+                        vals[fn] = "_"
+                tmpl.format(**vals)
+                tpl_ok += 1
+            except (ValueError, KeyError, IndexError) as e:
+                tpl_bad += 1
+                print(f"  [FAIL] S[{key!r}].{lang}: {e}")
+    print(f"  模板 {tpl_ok} 通过 / {tpl_bad} 失败")
+    bad += tpl_bad
+
     return 1 if bad else 0
 
 
@@ -1481,17 +1530,14 @@ def main() -> int:
     if roots is None:
         return 2
 
-    # 合并受保护清单
+    # 合并受保护清单（局部计算，不污染模块级全局态，避免跨调用泄漏，见 critical review #2）
     extra = {norm(x) for x in args.protect.split(",") if x.strip()}
     if args.protect_file:
         pf = pathlib.Path(args.protect_file)
         if pf.is_file():
             extra |= {norm(l) for l in pf.read_text(encoding="utf-8").splitlines() if l.strip()}
-    for leaf in extra:
-        PROTECTED_LEAVES.add(leaf)
-    if args.no_safety_heuristic:
-        global SAFETY_KEYWORDS
-        SAFETY_KEYWORDS = ()  # 关闭启发式
+    protected_leaves = PROTECTED_LEAVES | extra
+    safety_keywords = () if args.no_safety_heuristic else SAFETY_KEYWORDS
 
     # 千问：用中心化 lock 文件的 source 字段判定「来自市场」，并取反向依赖扫描根
     market_resolver = None
@@ -1501,7 +1547,7 @@ def main() -> int:
         if market_dirs is not None:
             market_resolver = lambda sd: sd in market_dirs or (sd / "_meta.json").exists()
 
-    rows = scan(roots, market_resolver)
+    rows = scan(roots, market_resolver, protected_extra=protected_leaves, safety_keywords=safety_keywords)
 
     # 反向依赖扫描：锁定被自动化 / Hook / 专家·连接器 / 路由层引用的技能
     if not args.no_ref_scan:
